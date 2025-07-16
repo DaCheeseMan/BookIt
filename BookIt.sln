@@ -5,11 +5,11 @@ VisualStudioVersion = 17.9.34407.89
 MinimumVisualStudioVersion = 10.0.40219.1
 Project("{9A19103F-16F7-4668-BE54-9A1E7A4F7556}") = "Aspire.AppHost", "Aspire\Aspire.AppHost\Aspire.AppHost.csproj", "{82AC1A9F-595F-4F64-95AA-54EEBEACD45D}"
 EndProject
-Project("{9A19103F-16F7-4668-BE54-9A1E7A4F7556}") = "BlazorWebAppOidc", "BlazorWebAppOidc\BlazorWebAppOidc.csproj", "{FA543A49-C954-4504-8090-ABA55920B72B}"
+Project("{9A19103F-16F7-4668-BE54-9A1E7A4F7556}") = "BookIt.Web", "BookIt.Web\BookIt.Web.csproj", "{FA543A49-C954-4504-8090-ABA55920B72B}"
 EndProject
-Project("{9A19103F-16F7-4668-BE54-9A1E7A4F7556}") = "BlazorWebAppOidc.Client", "BlazorWebAppOidc.Client\BlazorWebAppOidc.Client.csproj", "{7B3838A1-D145-479C-9B79-6D2CD1775B71}"
+Project("{9A19103F-16F7-4668-BE54-9A1E7A4F7556}") = "BookIt.Web.Client", "BookIt.Web.Client\BookIt.Web.Client.csproj", "{7B3838A1-D145-479C-9B79-6D2CD1775B71}"
 EndProject
-Project("{9A19103F-16F7-4668-BE54-9A1E7A4F7556}") = "MinimalApiJwt", "MinimalApiJwt\MinimalApiJwt.csproj", "{4C7F50CB-A66D-4708-8B4D-6A0018B14784}"
+Project("{9A19103F-16F7-4668-BE54-9A1E7A4F7556}") = "BookIt.Api", "BookIt.Api\BookIt.Api.csproj", "{4C7F50CB-A66D-4708-8B4D-6A0018B14784}"
 EndProject
 Project("{9A19103F-16F7-4668-BE54-9A1E7A4F7556}") = "Aspire.ServiceDefaults", "Aspire\Aspire.ServiceDefaults\Aspire.ServiceDefaults.csproj", "{4F6B20B6-25CD-45AB-A6E1-318EF3CCF854}"
 EndProject

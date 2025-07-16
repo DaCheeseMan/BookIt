@@ -9,7 +9,7 @@ using Microsoft.IdentityModel.JsonWebTokens;
 using Microsoft.IdentityModel.Protocols.OpenIdConnect;
 using Microsoft.IdentityModel.Tokens;
 
-namespace BlazorWebAppOidc;
+namespace BookIt.Web;
 
 // https://github.com/dotnet/aspnetcore/issues/8175
 internal sealed class CookieOidcRefresher(IOptionsMonitor<OpenIdConnectOptions> oidcOptionsMonitor)

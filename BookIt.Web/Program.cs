@@ -2,9 +2,9 @@ using Microsoft.AspNetCore.Authentication;
 using Microsoft.AspNetCore.Authentication.Cookies;
 using Microsoft.IdentityModel.Protocols.OpenIdConnect;
 using Yarp.ReverseProxy.Transforms;
-using BlazorWebAppOidc;
-using BlazorWebAppOidc.Client.Weather;
-using BlazorWebAppOidc.Components;
+using BookIt.Web;
+using BookIt.Web.Client.Weather;
+using BookIt.Web.Components;
 using Microsoft.FluentUI.AspNetCore.Components;
 
 const string MS_OIDC_SCHEME = "MicrosoftOidc";
@@ -195,7 +195,7 @@ app.MapDefaultEndpoints();
 app.MapRazorComponents<App>()
     .AddInteractiveServerRenderMode()
     .AddInteractiveWebAssemblyRenderMode()
-    .AddAdditionalAssemblies(typeof(BlazorWebAppOidc.Client._Imports).Assembly);
+    .AddAdditionalAssemblies(typeof(BookIt.Web.Client._Imports).Assembly);
 
 app.MapForwarder("/weather-forecast", "https://weatherapi", transformBuilder =>
 {

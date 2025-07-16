@@ -9,7 +9,7 @@
 
   <ItemGroup>
     <ProjectReference Include="..\Aspire\Aspire.ServiceDefaults\Aspire.ServiceDefaults.csproj" />
-    <ProjectReference Include="..\BlazorWebAppOidc.Client\BlazorWebAppOidc.Client.csproj" />
+    <ProjectReference Include="..\BookIt.Web.Client\BookIt.Web.Client.csproj" />
     <PackageReference Include="Microsoft.AspNetCore.Authentication.OpenIdConnect" Version="9.0.6" />
     <PackageReference Include="Microsoft.AspNetCore.Components.WebAssembly.Server" Version="9.0.6" />
     <PackageReference Include="Microsoft.Extensions.ServiceDiscovery.Yarp" Version="9.3.1" />

@@ -1,6 +1,6 @@
 using System.Net.Http.Json;
 
-namespace BlazorWebAppOidc.Client.Weather;
+namespace BookIt.Web.Client.Weather;
 
 internal sealed class ClientWeatherForecaster(HttpClient httpClient) : IWeatherForecaster
 {

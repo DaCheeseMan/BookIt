@@ -1,7 +1,7 @@
 using Microsoft.AspNetCore.Authentication;
-using BlazorWebAppOidc.Client.Weather;
+using BookIt.Web.Client.Weather;
 
-namespace BlazorWebAppOidc;
+namespace BookIt.Web;
 
 internal sealed class ServerWeatherForecaster(HttpClient httpClient, IHttpContextAccessor httpContextAccessor) : IWeatherForecaster
 {

@@ -1,5 +1,5 @@
 
-namespace BlazorWebAppOidc.Client.Weather;
+namespace BookIt.Web.Client.Weather;
 
 public interface IWeatherForecaster
 {

@@ -1,4 +1,4 @@
-namespace BlazorWebAppOidc.Client.Weather;
+namespace BookIt.Web.Client.Weather;
 
 public sealed class WeatherForecast
 {

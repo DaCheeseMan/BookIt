@@ -4,12 +4,12 @@ var keycloak = builder.AddKeycloak("keycloak", 8080)
     .WithRealmImport("./Realm/realm-weather.json")
      .WithDataVolume();
 
-var weatherApi = builder.AddProject<Projects.MinimalApiJwt>("weatherapi")
+var api = builder.AddProject<Projects.BookIt_Api>("api")
     .WithReference(keycloak)
     .WaitFor(keycloak);
 
-builder.AddProject<Projects.BlazorWebAppOidc>("blazorfrontend")
-    .WithReference(weatherApi)
+builder.AddProject<Projects.BookIt_Web>("web")
+    .WithReference(api)
     .WaitFor(keycloak);
 
 builder.Build().Run();
