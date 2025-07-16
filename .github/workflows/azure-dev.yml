@@ -22,7 +22,7 @@ jobs:
       AZURE_TENANT_ID: ${{ vars.AZURE_TENANT_ID }}
       AZURE_SUBSCRIPTION_ID: ${{ vars.AZURE_SUBSCRIPTION_ID }}
       AZURE_ENV_NAME: ${{ vars.AZURE_ENV_NAME }}
-      AZURE_LOCATION: ${{ vars.AZURE_LOCATION }}
+      AZURE_LOCATION: ${{ vars.AZURE_LOCATION }}      
     steps:
       - name: Checkout
         uses: actions/checkout@v4
@@ -48,9 +48,15 @@ jobs:
         run: azd provision --no-prompt
         env:
           AZURE_KEYCLOAK_PASSWORD: ${{ secrets.AZURE_KEYCLOAK_PASSWORD }}
+          KC_HTTP_ENABLED: true
+          KC_PROXY-HEADERS: 'xforwarded'
+          KC_HOSTNAME-STRICT: false
 
       - name: Deploy Application
         run: azd deploy --no-prompt
         env:
           AZURE_KEYCLOAK_PASSWORD: ${{ secrets.AZURE_KEYCLOAK_PASSWORD }}
+          KC_HTTP_ENABLED: true
+          KC_PROXY-HEADERS: 'xforwarded'
+          KC_HOSTNAME-STRICT: false
         
