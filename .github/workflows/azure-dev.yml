@@ -43,13 +43,12 @@ jobs:
             --tenant-id "$Env:AZURE_TENANT_ID"
         shell: pwsh
 
-
       - name: Provision Infrastructure
         run: azd provision --no-prompt
         env:
           AZURE_KEYCLOAK_PASSWORD: ${{ secrets.AZURE_KEYCLOAK_PASSWORD }}
           KC_HTTP_ENABLED: true
-          KC_PROXY-HEADERS: 'xforwarded'
+          KC_PROXY-HEADERS: xforwarded
           KC_HOSTNAME-STRICT: false
 
       - name: Deploy Application
@@ -57,6 +56,6 @@ jobs:
         env:
           AZURE_KEYCLOAK_PASSWORD: ${{ secrets.AZURE_KEYCLOAK_PASSWORD }}
           KC_HTTP_ENABLED: true
-          KC_PROXY-HEADERS: 'xforwarded'
+          KC_PROXY-HEADERS: xforwarded
           KC_HOSTNAME-STRICT: false
         
