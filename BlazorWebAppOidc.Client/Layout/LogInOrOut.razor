@@ -1,0 +1,55 @@
+@implements IDisposable
+@inject NavigationManager Navigation
+@using Icons = Microsoft.FluentUI.AspNetCore.Components.Icons
+
+<AuthorizeView>
+    <Authorized>
+        <FluentStack Orientation="Orientation.Horizontal" HorizontalAlignment="HorizontalAlignment.End">
+            <FluentPersona Initials="@GetInitials(context.User.Identity?.Name)" ImageSize="35px"/>
+            <form action="authentication/logout" method="post">
+                <AntiforgeryToken/>
+                <input type="hidden" name="ReturnUrl" value="@_currentUrl"/>
+                <FluentButton Type="ButtonType.Submit" IconStart="@(new Icons.Regular.Size16.ArrowExit())">Sign out
+                </FluentButton>
+            </form>
+        </FluentStack>
+    </Authorized>
+    <NotAuthorized>
+        <FluentNavLink href="authentication/login">
+            <FluentButton IconStart="@(new Icons.Regular.Size16.PersonArrowRight())">Sign in</FluentButton>
+        </FluentNavLink>
+    </NotAuthorized>
+</AuthorizeView>
+
+
+@code {
+    private string? _currentUrl;
+
+    protected override void OnInitialized()
+    {
+        _currentUrl = Navigation.ToBaseRelativePath(Navigation.Uri);
+        Navigation.LocationChanged += OnLocationChanged;
+    }
+
+    private void OnLocationChanged(object? sender, LocationChangedEventArgs e)
+    {
+        _currentUrl = Navigation.ToBaseRelativePath(e.Location);
+        StateHasChanged();
+    }
+
+    public void Dispose()
+    {
+        Navigation.LocationChanged -= OnLocationChanged;
+    }
+
+    private static string GetInitials(string? name)
+    {
+        if (string.IsNullOrWhiteSpace(name))
+        {
+            return string.Empty;
+        }
+
+        var parts = name.Split(' ', StringSplitOptions.RemoveEmptyEntries);
+        return string.Concat(parts.Select(p => p[0])).ToUpper();
+    }
+}

@@ -1,0 +1,36 @@
+﻿@using Microsoft.FluentUI.AspNetCore.Components.Icons.Regular
+@inherits LayoutComponentBase
+
+<FluentLayout>
+
+    <FluentHeader>
+        <FluentLabel Typo="Typography.Header" Style="width: -webkit-fill-available">Book It</FluentLabel>
+        <LogInOrOut />
+    </FluentHeader>
+    <FluentStack Orientation="Orientation.Horizontal" Width="100%">
+        <FluentNavMenu  Width="250">
+            <FluentNavLink Icon="@(new Size20.Home())" Href="/" Match="NavLinkMatch.All">Home</FluentNavLink>
+
+            <AuthorizeView>
+                <FluentNavLink Icon="@(new Size20.Radar())" Href="/user-claims" Match="NavLinkMatch.All">
+                    User Claims
+                </FluentNavLink>
+                <FluentNavLink Icon="@(new Size20.Calendar())" Href="/reservations" Match="NavLinkMatch.All">
+                    Reservations
+                </FluentNavLink>
+            </AuthorizeView>
+        </FluentNavMenu>
+
+        <FluentBodyContent>
+            @Body
+        </FluentBodyContent>
+    </FluentStack>
+</FluentLayout>
+
+<div id="blazor-error-ui">
+    An unhandled error has occurred.
+    <a href="." class="reload">Reload</a>
+    <span class="dismiss">🗙</span>
+</div>
+
+<FluentMenuProvider/>

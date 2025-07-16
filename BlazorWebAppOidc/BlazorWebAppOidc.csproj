@@ -1,0 +1,18 @@
+﻿<Project Sdk="Microsoft.NET.Sdk.Web">
+
+  <PropertyGroup>
+    <TargetFramework>net9.0</TargetFramework>
+    <Nullable>enable</Nullable>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <UserSecretsId>272c0b60-43cc-4e83-9cf7-7665fb36e85f</UserSecretsId>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <ProjectReference Include="..\Aspire\Aspire.ServiceDefaults\Aspire.ServiceDefaults.csproj" />
+    <ProjectReference Include="..\BlazorWebAppOidc.Client\BlazorWebAppOidc.Client.csproj" />
+    <PackageReference Include="Microsoft.AspNetCore.Authentication.OpenIdConnect" Version="9.0.6" />
+    <PackageReference Include="Microsoft.AspNetCore.Components.WebAssembly.Server" Version="9.0.6" />
+    <PackageReference Include="Microsoft.Extensions.ServiceDiscovery.Yarp" Version="9.3.1" />
+  </ItemGroup>
+
+</Project>
