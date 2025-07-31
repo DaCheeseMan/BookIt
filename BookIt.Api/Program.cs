@@ -42,6 +42,9 @@ builder.Services.AddAuthorization();
 // Add OpenApi
 builder.Services.AddOpenApi();
 
+// Add Postgres DB
+builder.AddNpgsqlDataSource(connectionName: "bookit");
+
 var app = builder.Build();
 
 // Configure Swagger UI
