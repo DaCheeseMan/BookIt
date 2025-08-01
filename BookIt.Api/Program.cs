@@ -1,3 +1,4 @@
+using FastEndpoints;
 using Microsoft.AspNetCore.Authentication.JwtBearer;
 
 var builder = WebApplication.CreateBuilder(args);
@@ -37,7 +38,15 @@ builder.Services.AddAuthentication()
         };
 
     });
-builder.Services.AddAuthorization();
+builder.Services.AddAuthorization(options =>
+{
+    // Define a policy that requires the "Member" role.
+    options.AddPolicy("Member", policy =>
+    {
+        policy.RequireAuthenticatedUser();
+        policy.RequireRole("Member");
+    });
+});
 
 // Add OpenApi
 builder.Services.AddOpenApi();
@@ -45,7 +54,13 @@ builder.Services.AddOpenApi();
 // Add Postgres DB
 builder.AddNpgsqlDataSource(connectionName: "bookit");
 
+// Add fast endpoints
+builder.Services.AddFastEndpoints();
+
 var app = builder.Build();
+
+// Use fast endpoints
+app.UseFastEndpoints();
 
 // Configure Swagger UI
 if (app.Environment.IsDevelopment())
