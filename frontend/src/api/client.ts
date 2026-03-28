@@ -2,6 +2,7 @@ import axios from 'axios';
 
 const apiClient = axios.create({ baseURL: '/api' });
 
+
 export function setAuthToken(token: string | null) {
   if (token) {
     apiClient.defaults.headers.common['Authorization'] = `Bearer ${token}`;
@@ -184,3 +185,21 @@ export function getUserRoles(accessToken: string | undefined): string[] {
     return [];
   }
 }
+
+export interface PasskeyCredential {
+  id: string;
+  type: string;
+  userLabel: string;
+  createdDate: number;
+}
+
+export const keycloakAccountApi = {
+  async listPasskeys(): Promise<PasskeyCredential[]> {
+    return apiClient.get<PasskeyCredential[]>('/profile/passkeys').then(r => r.data);
+  },
+
+  async deletePasskey(id: string): Promise<void> {
+    await apiClient.delete(`/profile/passkeys/${id}`);
+  },
+};
+

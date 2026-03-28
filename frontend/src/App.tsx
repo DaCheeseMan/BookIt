@@ -2,6 +2,7 @@ import { useEffect } from 'react'
 import { Route, Routes } from 'react-router-dom'
 import { useAuth } from 'react-oidc-context'
 import { Navbar } from './components/Navbar'
+import { PasskeyPromptBanner } from './components/PasskeyPromptBanner'
 import { ProtectedRoute } from './components/ProtectedRoute'
 import { LandingPage } from './pages/LandingPage'
 import { TenantsPage } from './pages/TenantsPage'
@@ -36,6 +37,7 @@ function App() {
   return (
     <div className="app">
       <Navbar />
+      <PasskeyPromptBanner />
       <main>
         <Routes>
           <Route path="/" element={<LandingPage />} />

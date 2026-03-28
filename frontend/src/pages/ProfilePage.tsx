@@ -1,7 +1,13 @@
-import { useEffect, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { useAuth } from 'react-oidc-context';
-import { profileApi } from '../api/client';
+import { keycloakAccountApi, profileApi } from '../api/client';
+import type { PasskeyCredential } from '../api/client';
 import './ProfilePage.css';
+
+const webAuthnSupported =
+  typeof window !== 'undefined' &&
+  'credentials' in navigator &&
+  typeof window.PublicKeyCredential !== 'undefined';
 
 export function ProfilePage() {
   const auth = useAuth();
@@ -16,6 +22,14 @@ export function ProfilePage() {
   const [success, setSuccess] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
+  // Passkeys state
+  const [passkeys, setPasskeys] = useState<PasskeyCredential[]>([]);
+  const [passkeysLoading, setPasskeysLoading] = useState(true);
+  const [passkeySuccess, setPasskeySuccess] = useState<string | null>(null);
+  const [passkeyError, setPasskeyError] = useState<string | null>(null);
+  const [deletingId, setDeletingId] = useState<string | null>(null);
+  const passkeysRef = useRef<HTMLDivElement>(null);
+
   useEffect(() => {
     profileApi.get()
       .then(profile => {
@@ -26,6 +40,22 @@ export function ProfilePage() {
       })
       .catch(() => setError('Could not load profile.'))
       .finally(() => setLoading(false));
+  }, [auth.user?.access_token]);
+
+  useEffect(() => {
+    setPasskeysLoading(true);
+    keycloakAccountApi.listPasskeys()
+      .then(setPasskeys)
+      .catch(() => setPasskeyError('Could not load passkeys.'))
+      .finally(() => setPasskeysLoading(false));
+
+    // Show success message if returning from passkey registration
+    if (sessionStorage.getItem('passkey_registering')) {
+      sessionStorage.removeItem('passkey_registering');
+      setPasskeySuccess('Passkey registered! You can now sign in with biometrics.');
+      // Scroll to passkeys section after a short delay
+      setTimeout(() => passkeysRef.current?.scrollIntoView({ behavior: 'smooth' }), 300);
+    }
   }, [auth.user?.access_token]);
 
   async function handleSubmit(e: React.FormEvent) {
@@ -48,6 +78,28 @@ export function ProfilePage() {
       setError(err instanceof Error ? err.message : 'Could not save profile.');
     } finally {
       setSaving(false);
+    }
+  }
+
+  function handleAddPasskey() {
+    sessionStorage.setItem('passkey_registering', '1');
+    auth.signinRedirect({
+      redirect_uri: `${window.location.origin}/profile`,
+      extraQueryParams: { kc_action: 'webauthn-register-passwordless' },
+    });
+  }
+
+  async function handleDeletePasskey(id: string) {
+    setDeletingId(id);
+    setPasskeyError(null);
+    try {
+      await keycloakAccountApi.deletePasskey(id);
+      setPasskeys(prev => prev.filter(p => p.id !== id));
+      setPasskeySuccess('Passkey removed.');
+    } catch {
+      setPasskeyError('Could not remove passkey. Please try again.');
+    } finally {
+      setDeletingId(null);
     }
   }
 
@@ -127,6 +179,65 @@ export function ProfilePage() {
           {saving ? 'Saving…' : 'Save profile'}
         </button>
       </form>
+
+      {/* ── Passkeys ──────────────────────────────────── */}
+      <div className="passkeys-card" id="passkeys" ref={passkeysRef}>
+        <div className="passkeys-header">
+          <div>
+            <h2>Passkeys</h2>
+            <p>Sign in with Face ID, Touch ID, Windows Hello, or a security key — no password needed.</p>
+          </div>
+          <button
+            className="btn btn-primary add-passkey-btn"
+            onClick={handleAddPasskey}
+            disabled={!webAuthnSupported}
+            title={webAuthnSupported ? undefined : 'Your browser does not support passkeys'}
+          >
+            + Add passkey
+          </button>
+        </div>
+
+        {passkeySuccess && (
+          <div className="success-banner passkey-msg">✅ {passkeySuccess}</div>
+        )}
+        {passkeyError && (
+          <div className="error-banner passkey-msg">⚠️ {passkeyError}</div>
+        )}
+
+        {!webAuthnSupported && (
+          <p className="passkey-unsupported">
+            Passkeys are not supported in this browser or device.
+          </p>
+        )}
+
+        {passkeysLoading ? (
+          <p className="passkey-loading">Loading passkeys…</p>
+        ) : passkeys.length === 0 ? (
+          <p className="passkey-empty">No passkeys registered yet.</p>
+        ) : (
+          <ul className="passkey-list">
+            {passkeys.map(pk => (
+              <li key={pk.id} className="passkey-row">
+                <span className="passkey-icon">🔑</span>
+                <div className="passkey-info">
+                  <span className="passkey-label">{pk.userLabel || 'Passkey'}</span>
+                  <span className="passkey-date">
+                    Added {pk.createdDate ? new Date(pk.createdDate).toLocaleDateString() : '—'}
+                  </span>
+                </div>
+                <button
+                  className="btn btn-danger passkey-delete-btn"
+                  onClick={() => handleDeletePasskey(pk.id)}
+                  disabled={deletingId === pk.id}
+                  aria-label={`Remove passkey ${pk.userLabel || ''}`}
+                >
+                  {deletingId === pk.id ? 'Removing…' : 'Remove'}
+                </button>
+              </li>
+            ))}
+          </ul>
+        )}
+      </div>
     </div>
   );
 }

@@ -440,6 +440,46 @@ profileApi.MapPost("/", async (ClaimsPrincipal user, ProfileUpdateRequest body, 
     return putRes.IsSuccessStatusCode ? Results.NoContent() : Results.StatusCode((int)putRes.StatusCode);
 });
 
+// --- Passkeys ---
+
+profileApi.MapGet("/passkeys", async (ClaimsPrincipal user, IConfiguration config, IWebHostEnvironment env, IHttpClientFactory httpClientFactory) =>
+{
+    var userId = user.FindFirstValue(ClaimTypes.NameIdentifier) ?? user.FindFirstValue("sub")!;
+    var adminToken = await GetKeycloakAdminTokenAsync(config, httpClientFactory, env.IsDevelopment());
+    if (adminToken is null) return Results.StatusCode(502);
+
+    var adminUrl = GetKeycloakAdminUrl(config, env.IsDevelopment());
+    var realm = config["Keycloak:RealmName"] ?? "bookit";
+    var client = httpClientFactory.CreateClient("keycloak-account");
+
+    var req = new HttpRequestMessage(HttpMethod.Get, $"{adminUrl}/admin/realms/{realm}/users/{userId}/credentials");
+    req.Headers.Authorization = new AuthenticationHeaderValue("Bearer", adminToken);
+    var res = await client.SendAsync(req);
+    if (!res.IsSuccessStatusCode) return Results.StatusCode((int)res.StatusCode);
+
+    var creds = await res.Content.ReadFromJsonAsync<List<KeycloakCredentialRepresentation>>();
+    var passkeys = (creds ?? [])
+        .Where(c => c.Type == "webauthn-passwordless")
+        .Select(c => new { c.Id, c.Type, c.UserLabel, c.CreatedDate });
+    return Results.Ok(passkeys);
+});
+
+profileApi.MapDelete("/passkeys/{credentialId}", async (string credentialId, ClaimsPrincipal user, IConfiguration config, IWebHostEnvironment env, IHttpClientFactory httpClientFactory) =>
+{
+    var userId = user.FindFirstValue(ClaimTypes.NameIdentifier) ?? user.FindFirstValue("sub")!;
+    var adminToken = await GetKeycloakAdminTokenAsync(config, httpClientFactory, env.IsDevelopment());
+    if (adminToken is null) return Results.StatusCode(502);
+
+    var adminUrl = GetKeycloakAdminUrl(config, env.IsDevelopment());
+    var realm = config["Keycloak:RealmName"] ?? "bookit";
+    var client = httpClientFactory.CreateClient("keycloak-account");
+
+    var req = new HttpRequestMessage(HttpMethod.Delete, $"{adminUrl}/admin/realms/{realm}/users/{userId}/credentials/{credentialId}");
+    req.Headers.Authorization = new AuthenticationHeaderValue("Bearer", adminToken);
+    var res = await client.SendAsync(req);
+    return res.IsSuccessStatusCode ? Results.NoContent() : Results.StatusCode((int)res.StatusCode);
+});
+
 // --- Admin API ---
 var adminGroup = app.MapGroup("/api/admin").RequireAuthorization();
 
@@ -631,7 +671,10 @@ class KeycloakUserRepresentation
 }
 class KeycloakCredentialRepresentation
 {
+    [System.Text.Json.Serialization.JsonPropertyName("id")] public string? Id { get; set; }
     [System.Text.Json.Serialization.JsonPropertyName("type")] public string Type { get; set; } = "password";
+    [System.Text.Json.Serialization.JsonPropertyName("userLabel")] public string? UserLabel { get; set; }
+    [System.Text.Json.Serialization.JsonPropertyName("createdDate")] public long? CreatedDate { get; set; }
     [System.Text.Json.Serialization.JsonPropertyName("value")] public string Value { get; set; } = "";
     [System.Text.Json.Serialization.JsonPropertyName("temporary")] public bool Temporary { get; set; } = true;
 }

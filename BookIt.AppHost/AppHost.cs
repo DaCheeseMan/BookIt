@@ -12,6 +12,7 @@ var keycloak = builder.AddKeycloak("keycloak", adminPassword: keycloakPassword)
     .WithEnvironment("KC_HTTP_ENABLED", "true")
     .WithEnvironment("KC_PROXY_HEADERS", "xforwarded")
     .WithEnvironment("KC_HOSTNAME_STRICT", "false")
+    .WithEnvironment("KC_FEATURES", "passkeys")
     .WithEndpoint("http", e => e.IsExternal = true);
 
 // App PostgreSQL database — declared up front so both branches of the if/else can
