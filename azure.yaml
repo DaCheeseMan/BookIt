@@ -1,0 +1,43 @@
+# yaml-language-server: $schema=https://raw.githubusercontent.com/Azure/azure-dev/main/schemas/v1.0/azure.yaml.json
+
+name: jtk-aspire
+services:  
+  app:
+    language: dotnet
+    project: ./JtK.AppHost/JtK.AppHost.csproj
+    host: containerapp
+
+hooks:
+  # After infrastructure is provisioned (ACR exists), import the Keycloak image from quay.io
+  # into the project's own ACR. Azure Container Apps can then pull from ACR in the same region
+  # instead of reaching out to quay.io, which is intermittently unreachable from Azure.
+  #
+  # The AcrEndpoint value is saved to the azd environment so that the next `azd deploy`
+  # (which re-packages the AppHost) generates Bicep that points directly to the ACR image.
+  # This is why the recommended first-deploy flow is `azd provision` then `azd deploy`
+  # rather than `azd up` — see README for details.
+  postprovision:
+    shell: sh
+    run: |
+      if [ -z "${AZURE_CONTAINER_REGISTRY_ENDPOINT}" ]; then
+        echo "No ACR endpoint found — skipping Keycloak image import."
+        exit 0
+      fi
+
+      ACR_NAME="${AZURE_CONTAINER_REGISTRY_ENDPOINT%%.*}"
+      KEYCLOAK_IMAGE="quay.io/keycloak/keycloak:26.4"
+
+      echo "Importing ${KEYCLOAK_IMAGE} into ${AZURE_CONTAINER_REGISTRY_ENDPOINT}..."
+      if az acr import \
+          --name "${ACR_NAME}" \
+          --source "${KEYCLOAK_IMAGE}" \
+          --image "keycloak/keycloak:26.4" \
+          --force; then
+        azd env set AcrEndpoint "${AZURE_CONTAINER_REGISTRY_ENDPOINT}"
+        echo "Done. AcrEndpoint set to ${AZURE_CONTAINER_REGISTRY_ENDPOINT}."
+      else
+        echo "Warning: ACR import failed (quay.io may be temporarily unavailable)."
+        echo "Run 'azd deploy' after the image becomes available on quay.io, or import manually:"
+        echo "  az acr import --name ${ACR_NAME} --source ${KEYCLOAK_IMAGE} --image keycloak/keycloak:26.4 --force"
+        echo "  azd env set AcrEndpoint ${AZURE_CONTAINER_REGISTRY_ENDPOINT}"
+      fi

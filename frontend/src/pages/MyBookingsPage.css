@@ -1,0 +1,141 @@
+.my-bookings-page {
+  max-width: 800px;
+  margin: 0 auto;
+  padding: 2rem;
+}
+
+.page-header {
+  margin-bottom: 2.5rem;
+}
+
+.page-header h1 {
+  font-size: 2rem;
+  color: #1a5c2e;
+  margin-bottom: 0.3rem;
+}
+
+.page-header p { color: #666; }
+
+.my-bookings-page h2 {
+  font-size: 1.25rem;
+  color: #333;
+  margin-bottom: 1rem;
+  border-bottom: 2px solid #e8f5e9;
+  padding-bottom: 0.5rem;
+}
+
+.empty-msg {
+  color: #888;
+  font-style: italic;
+  padding: 1rem 0;
+}
+
+.bookings-list {
+  display: flex;
+  flex-direction: column;
+  gap: 0.75rem;
+  margin-bottom: 2rem;
+}
+
+.booking-item {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  background: white;
+  border-radius: 10px;
+  padding: 1.2rem 1.5rem;
+  box-shadow: 0 2px 8px rgba(0,0,0,0.05);
+}
+
+.booking-item.upcoming {
+  border-left: 4px solid #1a5c2e;
+}
+
+.booking-item.past {
+  border-left: 4px solid #bdbdbd;
+  opacity: 0.75;
+}
+
+.booking-details {
+  display: flex;
+  flex-direction: column;
+  gap: 0.3rem;
+}
+
+.booking-details strong {
+  font-size: 1rem;
+  color: #1a5c2e;
+}
+
+.booking-time {
+  font-size: 0.9rem;
+  color: #555;
+}
+
+.surface-badge {
+  display: inline-block;
+  padding: 0.15rem 0.6rem;
+  border-radius: 20px;
+  font-size: 0.72rem;
+  font-weight: 600;
+  text-transform: uppercase;
+  width: fit-content;
+}
+
+.surface-badge.clay { background: #ffe0b2; color: #bf360c; }
+.surface-badge.hard { background: #e3f2fd; color: #0d47a1; }
+
+.cancel-btn {
+  padding: 0.45rem 1rem;
+  background: white;
+  color: #c62828;
+  border: 1.5px solid #c62828;
+  border-radius: 7px;
+  font-size: 0.85rem;
+  font-weight: 600;
+  cursor: pointer;
+  transition: all 0.2s;
+  white-space: nowrap;
+}
+
+.cancel-btn:hover:not(:disabled) {
+  background: #ffebee;
+}
+
+.cancel-btn:disabled { opacity: 0.5; cursor: not-allowed; }
+
+.past-label {
+  font-size: 0.82rem;
+  color: #9e9e9e;
+  font-style: italic;
+}
+
+.past-section { margin-top: 2rem; }
+
+.error-banner {
+  background: #ffebee;
+  color: #c62828;
+  padding: 0.75rem 1rem;
+  border-radius: 8px;
+  margin-bottom: 1.5rem;
+}
+
+.loading { display: flex; justify-content: center; padding: 3rem; color: #666; }
+
+@media (max-width: 768px) {
+  .my-bookings-page {
+    padding: 1.5rem 1rem;
+  }
+
+  .booking-item {
+    flex-direction: column;
+    align-items: flex-start;
+    gap: 0.75rem;
+    padding: 1rem 1.25rem;
+  }
+
+  .cancel-btn {
+    width: 100%;
+    padding: 0.7rem 1rem;
+  }
+}

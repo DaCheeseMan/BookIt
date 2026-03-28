@@ -1,0 +1,293 @@
+.landing {
+  font-family: 'Segoe UI', system-ui, sans-serif;
+}
+
+/* Hero */
+.hero {
+  background: linear-gradient(135deg, #1a5c2e 0%, #2e7d32 60%, #388e3c 100%);
+  color: white;
+  padding: 5rem 2rem;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 4rem;
+  min-height: 480px;
+}
+
+.hero-content h1 {
+  font-size: 3rem;
+  font-weight: 800;
+  line-height: 1.15;
+  margin-bottom: 1rem;
+}
+
+.hero-content h1 span {
+  color: #a5d6a7;
+}
+
+.hero-tagline {
+  font-size: 1.2rem;
+  opacity: 0.9;
+  max-width: 480px;
+  margin-bottom: 2rem;
+}
+
+.hero-cta {
+  display: flex;
+  gap: 1rem;
+  flex-wrap: wrap;
+}
+
+.hero-image {
+  font-size: 8rem;
+  line-height: 1;
+}
+
+.cta-btn {
+  padding: 0.75rem 1.8rem;
+  border-radius: 8px;
+  font-size: 1rem;
+  font-weight: 600;
+  cursor: pointer;
+  border: none;
+  text-decoration: none;
+  display: inline-flex;
+  align-items: center;
+  transition: transform 0.15s, box-shadow 0.15s;
+}
+
+.cta-btn:hover {
+  transform: translateY(-2px);
+  box-shadow: 0 6px 16px rgba(0,0,0,0.2);
+}
+
+.cta-btn.primary {
+  background: white;
+  color: #1a5c2e;
+}
+
+.cta-btn.secondary {
+  background: rgba(255,255,255,0.15);
+  color: white;
+  border: 1.5px solid rgba(255,255,255,0.5);
+}
+
+/* Sections */
+.section-content {
+  max-width: 1000px;
+  margin: 0 auto;
+  padding: 4rem 2rem;
+}
+
+.section-content h2 {
+  font-size: 2rem;
+  font-weight: 700;
+  color: #1a5c2e;
+  margin-bottom: 1.5rem;
+}
+
+/* About */
+.about {
+  background: #f9fbe7;
+}
+
+.about p {
+  font-size: 1.05rem;
+  color: #444;
+  line-height: 1.7;
+  margin-bottom: 2.5rem;
+  max-width: 680px;
+}
+
+.about-highlights {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
+  gap: 1.5rem;
+}
+
+.highlight {
+  background: white;
+  border-radius: 12px;
+  padding: 1.5rem;
+  box-shadow: 0 2px 8px rgba(0,0,0,0.06);
+}
+
+.highlight-icon {
+  font-size: 2rem;
+  display: block;
+  margin-bottom: 0.5rem;
+}
+
+.highlight strong {
+  display: block;
+  font-size: 1rem;
+  color: #1a5c2e;
+  margin-bottom: 0.4rem;
+}
+
+.highlight p {
+  font-size: 0.9rem;
+  color: #666;
+  margin: 0;
+}
+
+/* Courts */
+.courts-section {
+  background: white;
+}
+
+.courts-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(260px, 1fr));
+  gap: 1.5rem;
+  margin-bottom: 2rem;
+}
+
+.court-card {
+  border: 1.5px solid #e8f5e9;
+  border-radius: 12px;
+  padding: 1.8rem;
+  text-align: center;
+  background: #fafffe;
+  transition: box-shadow 0.2s;
+}
+
+.court-card:hover {
+  box-shadow: 0 4px 16px rgba(26,92,46,0.1);
+}
+
+.court-icon {
+  font-size: 2.5rem;
+  margin-bottom: 0.8rem;
+}
+
+.court-card h3 {
+  font-size: 1.15rem;
+  color: #1a5c2e;
+  margin-bottom: 0.5rem;
+}
+
+.surface-badge {
+  display: inline-block;
+  padding: 0.2rem 0.7rem;
+  border-radius: 20px;
+  font-size: 0.78rem;
+  font-weight: 600;
+  margin-bottom: 0.8rem;
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+}
+
+.surface-badge.clay { background: #ffe0b2; color: #bf360c; }
+.surface-badge.hard { background: #e3f2fd; color: #0d47a1; }
+
+.court-card p {
+  font-size: 0.9rem;
+  color: #666;
+  line-height: 1.5;
+  margin: 0;
+}
+
+.courts-cta {
+  text-align: center;
+  padding-top: 1rem;
+}
+
+.courts-cta p {
+  color: #666;
+  margin-bottom: 1rem;
+}
+
+/* Contact */
+.contact {
+  background: #1a5c2e;
+  color: white;
+}
+
+.contact h2 {
+  color: white !important;
+}
+
+.contact-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
+  gap: 2rem;
+}
+
+.contact p {
+  margin: 0.5rem 0;
+  opacity: 0.9;
+}
+
+.contact a {
+  color: #a5d6a7;
+}
+
+/* Loading */
+.loading {
+  display: flex;
+  justify-content: center;
+  align-items: center;
+  height: 200px;
+  font-size: 1.1rem;
+  color: #666;
+}
+
+@media (max-width: 768px) {
+  .hero {
+    flex-direction: column;
+    gap: 2rem;
+    padding: 3rem 1.5rem;
+    min-height: auto;
+    text-align: center;
+  }
+
+  .hero-content h1 {
+    font-size: 2rem;
+  }
+
+  .hero-tagline {
+    font-size: 1rem;
+  }
+
+  .hero-cta {
+    justify-content: center;
+  }
+
+  .hero-image {
+    font-size: 5rem;
+    order: -1;
+  }
+
+  .section-content {
+    padding: 2.5rem 1.25rem;
+  }
+
+  .section-content h2 {
+    font-size: 1.5rem;
+  }
+
+  .about-highlights {
+    grid-template-columns: 1fr;
+  }
+
+  .courts-grid {
+    grid-template-columns: 1fr;
+  }
+
+  .contact-grid {
+    grid-template-columns: 1fr;
+    gap: 1.5rem;
+  }
+}
+
+@media (max-width: 480px) {
+  .hero-content h1 {
+    font-size: 1.75rem;
+  }
+
+  .cta-btn {
+    width: 100%;
+    justify-content: center;
+  }
+}

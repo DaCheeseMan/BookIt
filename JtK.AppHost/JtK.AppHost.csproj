@@ -1,0 +1,23 @@
+<Project Sdk="Aspire.AppHost.Sdk/13.2.0">
+
+  <PropertyGroup>
+    <OutputType>Exe</OutputType>
+    <TargetFramework>net10.0</TargetFramework>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <Nullable>enable</Nullable>
+    <UserSecretsId>3a57aba5-dd01-463f-8b78-6585ce3e81c2</UserSecretsId>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <ProjectReference Include="..\JtK.Server\JtK.Server.csproj" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <PackageReference Include="Aspire.Hosting.Azure.AppContainers" Version="13.2.0" />
+    <PackageReference Include="Aspire.Hosting.Azure.PostgreSQL" Version="13.2.0" />
+    <PackageReference Include="Aspire.Hosting.JavaScript" Version="13.2.0" />
+    <PackageReference Include="Aspire.Hosting.Keycloak" Version="13.2.0-preview.1.26170.3" />
+    <PackageReference Include="Aspire.Hosting.PostgreSQL" Version="13.2.0" />
+    <PackageReference Include="Azure.Provisioning" Version="1.5.0" />
+  </ItemGroup>
+</Project>
