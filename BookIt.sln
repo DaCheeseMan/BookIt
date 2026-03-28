@@ -2,9 +2,9 @@
 # Visual Studio Version 17
 VisualStudioVersion = 17.8.0.0
 MinimumVisualStudioVersion = 17.8.0.0
-Project("{9A19103F-16F7-4668-BE54-9A1E7A4F7556}") = "JtK.AppHost", "JtK.AppHost\JtK.AppHost.csproj", "{BABF5BD8-3588-483E-BD01-8A550621D274}"
+Project("{9A19103F-16F7-4668-BE54-9A1E7A4F7556}") = "BookIt.AppHost", "BookIt.AppHost\BookIt.AppHost.csproj", "{BABF5BD8-3588-483E-BD01-8A550621D274}"
 EndProject
-Project("{9A19103F-16F7-4668-BE54-9A1E7A4F7556}") = "JtK.Server", "JtK.Server\JtK.Server.csproj", "{9353BD38-5D7C-424B-B36D-8840A0A9C9E4}"
+Project("{9A19103F-16F7-4668-BE54-9A1E7A4F7556}") = "BookIt.Server", "BookIt.Server\BookIt.Server.csproj", "{9353BD38-5D7C-424B-B36D-8840A0A9C9E4}"
 EndProject
 Project("{54A90642-561A-4BB1-A94E-469ADEE60C69}") = "frontend", "frontend\frontend.esproj", "{10958061-83A7-44EB-9BF2-3A087191178C}"
 EndProject

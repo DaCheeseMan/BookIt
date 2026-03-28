@@ -24,7 +24,7 @@ export function ProfilePage() {
         setEmail(profile.email ?? '');
         setPhoneNumber(profile.attributes?.phone_number?.[0] ?? '');
       })
-      .catch(() => setError('Kunde inte hämta profilinformation.'))
+      .catch(() => setError('Could not load profile.'))
       .finally(() => setLoading(false));
   }, [auth.user?.access_token]);
 
@@ -42,53 +42,48 @@ export function ProfilePage() {
         attributes: { phone_number: [phoneNumber.trim()] },
       });
 
-      // Refresh token so updated claims take effect in subsequent requests
       await auth.signinSilent();
       setSuccess(true);
     } catch (err) {
-      setError(err instanceof Error ? err.message : 'Kunde inte spara profilen.');
+      setError(err instanceof Error ? err.message : 'Could not save profile.');
     } finally {
       setSaving(false);
     }
   }
 
-  if (loading) return <div className="loading">Laddar profil...</div>;
+  if (loading) return <div className="loading">Loading profile…</div>;
 
   return (
     <div className="profile-page">
       <div className="page-header">
-        <h1>Min profil</h1>
-        <p>Uppdatera dina kontaktuppgifter</p>
+        <h1>My profile</h1>
+        <p>Update your contact details</p>
       </div>
 
-      {success && (
-        <div className="success-banner">✅ Profilen har sparats!</div>
-      )}
-      {error && (
-        <div className="error-banner">⚠️ {error}</div>
-      )}
+      {success && <div className="success-banner">✅ Profile saved!</div>}
+      {error && <div className="error-banner">⚠️ {error}</div>}
 
       <form className="profile-form" onSubmit={handleSubmit} noValidate>
         <div className="form-row">
           <div className="form-group">
-            <label htmlFor="firstName">Förnamn</label>
+            <label htmlFor="firstName">First name</label>
             <input
               id="firstName"
               type="text"
               value={firstName}
               onChange={e => setFirstName(e.target.value)}
-              placeholder="Förnamn (valfritt)"
+              placeholder="First name (optional)"
               autoComplete="given-name"
             />
           </div>
           <div className="form-group">
-            <label htmlFor="lastName">Efternamn</label>
+            <label htmlFor="lastName">Last name</label>
             <input
               id="lastName"
               type="text"
               value={lastName}
               onChange={e => setLastName(e.target.value)}
-              placeholder="Efternamn (valfritt)"
+              placeholder="Last name (optional)"
               autoComplete="family-name"
             />
           </div>
@@ -96,14 +91,14 @@ export function ProfilePage() {
 
         <div className="form-group">
           <label htmlFor="email">
-            E-postadress <span className="required">*</span>
+            Email <span className="required">*</span>
           </label>
           <input
             id="email"
             type="email"
             value={email}
             onChange={e => setEmail(e.target.value)}
-            placeholder="din@epost.se"
+            placeholder="you@example.com"
             required
             autoComplete="email"
           />
@@ -111,14 +106,14 @@ export function ProfilePage() {
 
         <div className="form-group">
           <label htmlFor="phoneNumber">
-            Telefonnummer <span className="required">*</span>
+            Phone number <span className="required">*</span>
           </label>
           <input
             id="phoneNumber"
             type="tel"
             value={phoneNumber}
             onChange={e => setPhoneNumber(e.target.value)}
-            placeholder="070-000 00 00"
+            placeholder="+1 234 567 8900"
             required
             autoComplete="tel"
           />
@@ -129,7 +124,7 @@ export function ProfilePage() {
           className="btn btn-primary save-btn"
           disabled={saving || !email.trim() || !phoneNumber.trim()}
         >
-          {saving ? 'Sparar...' : 'Spara profil'}
+          {saving ? 'Saving…' : 'Save profile'}
         </button>
       </form>
     </div>

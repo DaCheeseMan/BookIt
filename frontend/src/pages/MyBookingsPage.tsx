@@ -3,9 +3,21 @@ import { useAuth } from 'react-oidc-context';
 import { bookingsApi, setAuthToken, type Booking } from '../api/client';
 import './MyBookingsPage.css';
 
+const TYPE_ICONS: Record<string, string> = {
+  court: '🏓', tennis: '🎾', padel: '🏓', sauna: '🧖', restaurant: '🍽️',
+  boat: '⛵', car: '🚗', vehicle: '🚘', meeting: '🏢', gym: '🏋️', pool: '🏊', default: '📅',
+};
+
+function getTypeIcon(resourceType: string): string {
+  const key = (resourceType ?? '').toLowerCase();
+  for (const [k, v] of Object.entries(TYPE_ICONS)) {
+    if (key.includes(k)) return v;
+  }
+  return TYPE_ICONS.default;
+}
+
 function isPast(booking: Booking) {
-  const bookingDate = new Date(`${booking.date}T${booking.startTime}`);
-  return bookingDate < new Date();
+  return new Date(`${booking.date}T${booking.startTime}`) < new Date();
 }
 
 export function MyBookingsPage() {
@@ -19,7 +31,7 @@ export function MyBookingsPage() {
     if (auth.user?.access_token) setAuthToken(auth.user.access_token);
     bookingsApi.getMine()
       .then(setBookings)
-      .catch(() => setError('Kunde inte hämta bokningar.'))
+      .catch(() => setError('Could not load bookings.'))
       .finally(() => setLoading(false));
   }, [auth.user]);
 
@@ -29,13 +41,13 @@ export function MyBookingsPage() {
       await bookingsApi.cancel(id);
       setBookings(prev => prev.filter(b => b.id !== id));
     } catch {
-      setError('Kunde inte avboka. Försök igen.');
+      setError('Could not cancel booking. Please try again.');
     } finally {
       setCancelling(null);
     }
   }
 
-  if (loading) return <div className="loading">Laddar bokningar...</div>;
+  if (loading) return <div className="loading">Loading bookings…</div>;
 
   const upcoming = bookings.filter(b => !isPast(b));
   const past = bookings.filter(b => isPast(b));
@@ -43,37 +55,35 @@ export function MyBookingsPage() {
   return (
     <div className="my-bookings-page">
       <div className="page-header">
-        <h1>Mina bokningar</h1>
-        <p>Välkommen, {auth.user?.profile.preferred_username}!</p>
+        <h1>My bookings</h1>
+        <p>Welcome, {auth.user?.profile.preferred_username}!</p>
       </div>
 
       {error && <div className="error-banner">{error}</div>}
 
       <section>
-        <h2>Kommande ({upcoming.length})</h2>
+        <h2>Upcoming ({upcoming.length})</h2>
         {upcoming.length === 0 ? (
-          <p className="empty-msg">Inga kommande bokningar.</p>
+          <p className="empty-msg">No upcoming bookings.</p>
         ) : (
           <div className="bookings-list">
             {upcoming.map(b => (
               <div key={b.id} className="booking-item upcoming">
+                <div className="booking-icon">{getTypeIcon(b.resourceType)}</div>
                 <div className="booking-details">
-                  <strong>{b.court?.name ?? `Bana ${b.courtId}`}</strong>
+                  <strong>{b.resourceName}</strong>
+                  <span className="booking-tenant">{b.tenantName}</span>
                   <span className="booking-time">
                     📅 {b.date} &nbsp;⏰ {b.startTime.slice(0, 5)}–{b.endTime.slice(0, 5)}
                   </span>
-                  {b.court && (
-                    <span className={`surface-badge ${b.court.surface.toLowerCase()}`}>
-                      {b.court.surface}
-                    </span>
-                  )}
+                  <span className="resource-type-tag">{b.resourceType}</span>
                 </div>
                 <button
                   className="cancel-btn"
                   onClick={() => handleCancel(b.id)}
                   disabled={cancelling === b.id}
                 >
-                  {cancelling === b.id ? 'Avbokar...' : 'Avboka'}
+                  {cancelling === b.id ? 'Cancelling…' : 'Cancel'}
                 </button>
               </div>
             ))}
@@ -83,17 +93,19 @@ export function MyBookingsPage() {
 
       {past.length > 0 && (
         <section className="past-section">
-          <h2>Historik ({past.length})</h2>
+          <h2>History ({past.length})</h2>
           <div className="bookings-list">
             {past.map(b => (
               <div key={b.id} className="booking-item past">
+                <div className="booking-icon">{getTypeIcon(b.resourceType)}</div>
                 <div className="booking-details">
-                  <strong>{b.court?.name ?? `Bana ${b.courtId}`}</strong>
+                  <strong>{b.resourceName}</strong>
+                  <span className="booking-tenant">{b.tenantName}</span>
                   <span className="booking-time">
                     📅 {b.date} &nbsp;⏰ {b.startTime.slice(0, 5)}–{b.endTime.slice(0, 5)}
                   </span>
                 </div>
-                <span className="past-label">Spelad</span>
+                <span className="past-label">Done</span>
               </div>
             ))}
           </div>

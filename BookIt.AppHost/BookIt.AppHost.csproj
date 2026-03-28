@@ -9,7 +9,7 @@
   </PropertyGroup>
 
   <ItemGroup>
-    <ProjectReference Include="..\JtK.Server\JtK.Server.csproj" />
+    <ProjectReference Include="..\BookIt.Server\BookIt.Server.csproj" />
   </ItemGroup>
 
   <ItemGroup>

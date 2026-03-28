@@ -4,7 +4,7 @@
   justify-content: space-between;
   padding: 0 2rem;
   height: 64px;
-  background: #1a5c2e;
+  background: #1a56a8;
   color: white;
   box-shadow: 0 2px 8px rgba(0,0,0,0.15);
   position: sticky;
@@ -68,8 +68,8 @@
 }
 
 .btn-primary {
-  background: #e8f5e9;
-  color: #1a5c2e;
+  background: #e0eaff;
+  color: #1a56a8;
 }
 
 .btn-primary:hover {
@@ -136,7 +136,7 @@
     left: 0;
     right: 0;
     z-index: 99;
-    background: #1a5c2e;
+    background: #1a56a8;
     padding: 1rem 1.5rem;
     box-shadow: 0 4px 16px rgba(0, 0, 0, 0.2);
   }

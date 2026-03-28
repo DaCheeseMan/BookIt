@@ -23,7 +23,7 @@
 .weekly-title h1 {
   margin: 0;
   font-size: 1.6rem;
-  color: #1a3c2a;
+  color: #1a2a4a;
 }
 
 .week-nav {
@@ -35,7 +35,7 @@
 
 .week-label {
   font-weight: 600;
-  color: #1a3c2a;
+  color: #1a2a4a;
   min-width: 11rem;
   text-align: center;
 }
@@ -113,11 +113,11 @@
 
 /* ── Header row ─────────────────────────────────────── */
 .time-header {
-  background: #1a5c2e;
+  background: #1a56a8;
 }
 
 .day-header {
-  background: #1a5c2e;
+  background: #1a56a8;
   color: #fff;
   display: flex;
   flex-direction: column;
@@ -201,14 +201,14 @@
 .slot-hover-time {
   font-size: 0.7rem;
   font-weight: 600;
-  color: #1a5c2e;
+  color: #1a56a8;
   opacity: 0;
   transition: opacity 0.15s;
   pointer-events: none;
 }
 
 .slot-clickable:hover .slot-plus {
-  color: #1a5c2e;
+  color: #1a56a8;
 }
 
 .slot-clickable:hover .slot-hover-time {
@@ -222,7 +222,7 @@
 
 .slot-mine .slot-label {
   font-weight: 700;
-  color: #1a5c2e;
+  color: #1a56a8;
   font-size: 0.82rem;
 }
 
@@ -317,7 +317,7 @@
 
 /* ── Buttons ─────────────────────────────────────────── */
 .btn-primary {
-  background: #1a5c2e;
+  background: #1a56a8;
   color: #fff;
   border: none;
   border-radius: 6px;
@@ -332,8 +332,8 @@
 
 .btn-secondary {
   background: #fff;
-  color: #1a5c2e;
-  border: 1.5px solid #1a5c2e;
+  color: #1a56a8;
+  border: 1.5px solid #1a56a8;
   border-radius: 6px;
   padding: 0.4rem 1rem;
   font-size: 0.9rem;
@@ -343,7 +343,7 @@
 }
 
 .btn-secondary:hover {
-  background: #1a5c2e;
+  background: #1a56a8;
   color: #fff;
 }
 
@@ -424,14 +424,14 @@
 }
 
 .day-chip--active {
-  background: #1a5c2e;
-  border-color: #1a5c2e;
+  background: #1a56a8;
+  border-color: #1a56a8;
   color: white;
 }
 
 .day-chip--today:not(.day-chip--active) {
-  border-color: #1a5c2e;
-  color: #1a5c2e;
+  border-color: #1a56a8;
+  color: #1a56a8;
 }
 
 .day-chip-name {
@@ -469,7 +469,7 @@
 .confirm-dialog h3 {
   margin: 0 0 0.75rem;
   font-size: 1.15rem;
-  color: #1a3c2a;
+  color: #1a2a4a;
 }
 
 .confirm-dialog p {
@@ -511,7 +511,7 @@
   background: rgba(26, 92, 46, 0.12);
   border: 1px solid rgba(26, 92, 46, 0.35);
   border-radius: 3px;
-  color: #1a5c2e;
+  color: #1a56a8;
   font-size: 0.75rem;
   cursor: pointer;
   line-height: 1.4;
@@ -544,3 +544,4 @@
   color: #1a1a1a;
   font-size: 0.95rem;
 }
+.resource-type-badge { background: #e0eaff; color: #1a56a8; border-radius: 20px; padding: 0.15rem 0.65rem; font-size: 0.78rem; font-weight: 600; }

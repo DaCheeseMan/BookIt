@@ -17,17 +17,17 @@ export function Navbar() {
   return (
     <nav className="navbar">
       <div className="navbar-brand">
-        <Link to="/" onClick={closeMenu}>🎾 Jonsereds TK</Link>
+        <Link to="/" onClick={closeMenu}>📅 BookIt</Link>
       </div>
       <div className="navbar-links">
-        <Link to="/" className={isActive('/')}>Hem</Link>
-        <Link to="/courts" className={isActive('/courts')}>Banor</Link>
+        <Link to="/" className={isActive('/')}>Home</Link>
         {auth.isAuthenticated && (
           <>
-            <Link to="/my-bookings" className={isActive('/my-bookings')}>Mina Bokningar</Link>
-            <Link to="/profile" className={isActive('/profile')}>Min Profil</Link>
+            <Link to="/tenants" className={location.pathname.startsWith('/tenants') ? 'active' : ''}>Spaces</Link>
+            <Link to="/my-bookings" className={isActive('/my-bookings')}>My Bookings</Link>
+            <Link to="/profile" className={isActive('/profile')}>Profile</Link>
             {isAdmin && (
-              <Link to="/admin/users" className={isActive('/admin/users')}>Administrera</Link>
+              <Link to="/admin/users" className={isActive('/admin/users')}>Admin</Link>
             )}
           </>
         )}
@@ -39,18 +39,18 @@ export function Navbar() {
               {auth.user?.profile.preferred_username ?? auth.user?.profile.name}
             </span>
             <button className="btn btn-outline" onClick={() => auth.signoutRedirect()}>
-              Logga ut
+              Sign out
             </button>
           </div>
         ) : (
           <button className="btn btn-primary" onClick={() => auth.signinRedirect()}>
-            Logga in
+            Sign in
           </button>
         )}
       </div>
       <button
         className="navbar-hamburger"
-        aria-label={menuOpen ? 'Stäng meny' : 'Öppna meny'}
+        aria-label={menuOpen ? 'Close menu' : 'Open menu'}
         aria-expanded={menuOpen}
         onClick={() => setMenuOpen(o => !o)}
       >
@@ -58,14 +58,14 @@ export function Navbar() {
       </button>
       {menuOpen && (
         <div className="navbar-mobile-menu">
-          <Link to="/" className={isActive('/')} onClick={closeMenu}>Hem</Link>
-          <Link to="/courts" className={isActive('/courts')} onClick={closeMenu}>Banor</Link>
+          <Link to="/" className={isActive('/')} onClick={closeMenu}>Home</Link>
           {auth.isAuthenticated && (
             <>
-              <Link to="/my-bookings" className={isActive('/my-bookings')} onClick={closeMenu}>Mina Bokningar</Link>
-              <Link to="/profile" className={isActive('/profile')} onClick={closeMenu}>Min Profil</Link>
+              <Link to="/tenants" className={location.pathname.startsWith('/tenants') ? 'active' : ''} onClick={closeMenu}>Spaces</Link>
+              <Link to="/my-bookings" className={isActive('/my-bookings')} onClick={closeMenu}>My Bookings</Link>
+              <Link to="/profile" className={isActive('/profile')} onClick={closeMenu}>Profile</Link>
               {isAdmin && (
-                <Link to="/admin/users" className={isActive('/admin/users')} onClick={closeMenu}>Administrera</Link>
+                <Link to="/admin/users" className={isActive('/admin/users')} onClick={closeMenu}>Admin</Link>
               )}
             </>
           )}
@@ -76,12 +76,12 @@ export function Navbar() {
                   {auth.user?.profile.preferred_username ?? auth.user?.profile.name}
                 </span>
                 <button className="btn btn-outline" onClick={() => { closeMenu(); auth.signoutRedirect(); }}>
-                  Logga ut
+                  Sign out
                 </button>
               </>
             ) : (
               <button className="btn btn-primary" onClick={() => { closeMenu(); auth.signinRedirect(); }}>
-                Logga in
+                Sign in
               </button>
             )}
           </div>

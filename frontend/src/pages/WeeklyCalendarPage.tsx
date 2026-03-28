@@ -1,11 +1,10 @@
 import React, { useEffect, useState, useCallback } from 'react';
 import { useNavigate, useParams } from 'react-router-dom';
 import { useAuth } from 'react-oidc-context';
-import { bookingsApi, courtsApi, getUserRoles, setAuthToken, type Court, type CourtBooking } from '../api/client';
+import { bookingsApi, resourcesApi, tenantsApi, getUserRoles, setAuthToken, type Resource, type ResourceBooking } from '../api/client';
 import './WeeklyCalendarPage.css';
 
-const HOURS = Array.from({ length: 16 }, (_, i) => i + 7); // 07–22
-const DAY_NAMES = ['Mån', 'Tis', 'Ons', 'Tor', 'Fre', 'Lör', 'Sön'];
+const DAY_NAMES = ['Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat', 'Sun'];
 
 function useIsMobile(): boolean {
   const [isMobile, setIsMobile] = useState(() => window.innerWidth < 768);
@@ -19,7 +18,7 @@ function useIsMobile(): boolean {
 
 function getMondayOf(date: Date): Date {
   const d = new Date(date);
-  const day = d.getDay(); // 0=Sun
+  const day = d.getDay();
   const diff = day === 0 ? -6 : 1 - day;
   d.setDate(d.getDate() + diff);
   d.setHours(0, 0, 0, 0);
@@ -40,36 +39,40 @@ function toDateStr(date: Date): string {
 }
 
 function formatDate(date: Date): string {
-  return date.toLocaleDateString('sv-SE', { day: 'numeric', month: 'short' });
+  return date.toLocaleDateString('en-GB', { day: 'numeric', month: 'short' });
+}
+
+function toTimeStr(hour: number, minute: number = 0): string {
+  return `${String(hour).padStart(2, '0')}:${String(minute).padStart(2, '0')}:00`;
 }
 
 type SlotState = 'past' | 'free' | 'mine' | 'taken';
 
 interface SlotInfo {
   state: SlotState;
-  booking?: CourtBooking;
+  booking?: ResourceBooking;
 }
 
 export function WeeklyCalendarPage() {
-  const { courtId } = useParams<{ courtId: string }>();
+  const { slug, resourceId } = useParams<{ slug: string; resourceId: string }>();
   const navigate = useNavigate();
   const auth = useAuth();
 
-  const [court, setCourt] = useState<Court | null>(null);
+  const [resource, setResource] = useState<Resource | null>(null);
+  const [tenantId, setTenantId] = useState<number | null>(null);
   const [weekStart, setWeekStart] = useState<Date>(() => getMondayOf(new Date()));
-  const [courtBookings, setCourtBookings] = useState<CourtBooking[]>([]);
+  const [resourceBookings, setResourceBookings] = useState<ResourceBooking[]>([]);
   const [myFutureCount, setMyFutureCount] = useState(0);
   const [cancellingBooking, setCancellingBooking] = useState<number | null>(null);
-  const [confirmBooking, setConfirmBooking] = useState<CourtBooking | null>(null);
-  const [infoBooking, setInfoBooking] = useState<CourtBooking | null>(null);
-  const [loadingSlot, setLoadingSlot] = useState<string | null>(null); // "YYYY-MM-DD-HH"
+  const [confirmBooking, setConfirmBooking] = useState<ResourceBooking | null>(null);
+  const [infoBooking, setInfoBooking] = useState<ResourceBooking | null>(null);
+  const [loadingSlot, setLoadingSlot] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
-  const [confirmedSlot, setConfirmedSlot] = useState<string | null>(null); // "YYYY-MM-DD-HH"
+  const [confirmedSlot, setConfirmedSlot] = useState<string | null>(null);
 
   const myUserId = auth.user?.profile.sub;
   const userRoles = getUserRoles(auth.user?.access_token);
   const isAdmin = userRoles.includes('admin');
-  const isMember = userRoles.includes('member') || isAdmin;
 
   const isMobile = useIsMobile();
   const [selectedDayIndex, setSelectedDayIndex] = useState<number>(() => {
@@ -83,54 +86,63 @@ export function WeeklyCalendarPage() {
   const weekFrom = toDateStr(weekDays[0]);
   const weekTo = toDateStr(weekDays[6]);
 
+  // Compute time slots from resource slot duration
+  const slotDuration = resource?.slotDurationMinutes ?? 60;
+  const slotsPerHour = 60 / slotDuration;
+  const SLOTS: { hour: number; minute: number }[] = [];
+  for (let h = 7; h < 23; h++) {
+    for (let s = 0; s < slotsPerHour; s++) {
+      SLOTS.push({ hour: h, minute: s * slotDuration });
+    }
+  }
+
   const loadBookings = useCallback(async () => {
-    if (!courtId) return;
+    if (!tenantId || !resourceId) return;
     try {
-      const weekData = await bookingsApi.getForCourt(Number(courtId), weekFrom, weekTo);
-      setCourtBookings(weekData);
+      const weekData = await resourcesApi.getBookings(tenantId, Number(resourceId), weekFrom, weekTo);
+      setResourceBookings(weekData);
       if (auth.isAuthenticated) {
         const myData = await bookingsApi.getMine();
         const now = new Date();
         const todayStr = toDateStr(now);
-        const nowHour = now.getHours();
+        const nowTime = now.toTimeString().slice(0, 8);
         const future = myData.filter(b =>
-          b.date > todayStr || (b.date === todayStr && parseInt(b.startTime.slice(0, 2)) > nowHour)
+          b.date > todayStr || (b.date === todayStr && b.startTime > nowTime)
         );
         setMyFutureCount(future.length);
       }
     } catch {
-      setError('Kunde inte ladda bokningar.');
+      setError('Could not load bookings.');
     }
-  }, [courtId, weekFrom, weekTo, auth.isAuthenticated]);
+  }, [tenantId, resourceId, weekFrom, weekTo, auth.isAuthenticated]);
 
   useEffect(() => {
     if (auth.user?.access_token) setAuthToken(auth.user.access_token);
-    if (courtId) {
-      courtsApi.getById(Number(courtId)).then(setCourt).catch(() => setError('Bana hittades inte.'));
-    }
-  }, [auth.user, courtId]);
+    if (!slug || !resourceId) return;
+    tenantsApi.getById(slug).then(t => {
+      setTenantId(t.id);
+      return resourcesApi.getById(t.id, Number(resourceId));
+    }).then(setResource).catch(() => setError('Resource not found.'));
+  }, [auth.user, slug, resourceId]);
 
-  // Reset selected day when navigating to a different week
   useEffect(() => {
     const idx = weekDays.findIndex(d => toDateStr(d) === toDateStr(new Date()));
     setSelectedDayIndex(idx >= 0 ? idx : 0);
   }, [weekStart]); // eslint-disable-line react-hooks/exhaustive-deps
 
   useEffect(() => {
-    loadBookings();
-  }, [loadBookings]);
+    if (tenantId) loadBookings();
+  }, [loadBookings, tenantId]);
 
-  function getSlotInfo(dateStr: string, hour: number): SlotInfo {
+  function getSlotInfo(dateStr: string, hour: number, minute: number): SlotInfo {
     const now = new Date();
     const todayStr = toDateStr(now);
-    const nowHour = now.getHours();
-
-    const isPast = dateStr < todayStr || (dateStr === todayStr && hour <= nowHour);
+    const slotTime = toTimeStr(hour, minute);
+    const isPast = dateStr < todayStr || (dateStr === todayStr && slotTime <= now.toTimeString().slice(0, 8));
     if (isPast) return { state: 'past' };
 
-    const booking = courtBookings.find(b => {
-      const bHour = parseInt(b.startTime.slice(0, 2));
-      return b.date === dateStr && bHour === hour;
+    const booking = resourceBookings.find(b => {
+      return b.date === dateStr && b.startTime.slice(0, 5) === slotTime.slice(0, 5);
     });
 
     if (!booking) return { state: 'free' };
@@ -138,29 +150,32 @@ export function WeeklyCalendarPage() {
     return { state: 'taken', booking };
   }
 
-  async function handleSlotClick(dateStr: string, hour: number) {
-    const slotKey = `${dateStr}-${hour}`;
-    const { state } = getSlotInfo(dateStr, hour);
-
+  async function handleSlotClick(dateStr: string, hour: number, minute: number) {
+    const slotKey = `${dateStr}-${hour}-${minute}`;
+    const { state } = getSlotInfo(dateStr, hour, minute);
     if (state !== 'free') return;
-    if (!isMember) return;
-    if (!isAdmin && myFutureCount >= 2) {
-      setError('Du kan inte ha fler än 2 kommande bokningar.');
+    if (!auth.isAuthenticated) return;
+    if (!isAdmin && myFutureCount >= 3) {
+      setError('You cannot have more than 3 upcoming bookings for this space.');
       return;
     }
-    if (!courtId) return;
+    if (!resourceId || !tenantId) return;
 
     setLoadingSlot(slotKey);
     setError(null);
     try {
-      await bookingsApi.create({ courtId: Number(courtId), date: dateStr, startHour: hour });
+      await bookingsApi.create({
+        resourceId: Number(resourceId),
+        date: dateStr,
+        startTime: toTimeStr(hour, minute),
+      });
       setConfirmedSlot(slotKey);
       await loadBookings();
     } catch (err: unknown) {
       const axiosErr = err as { response?: { data?: string | { title?: string } } };
       const data = axiosErr?.response?.data;
       const msg = typeof data === 'string' ? data : data?.title;
-      setError(msg ?? 'Bokning misslyckades. Försök igen.');
+      setError(msg ?? 'Booking failed. Please try again.');
     } finally {
       setLoadingSlot(null);
     }
@@ -175,21 +190,21 @@ export function WeeklyCalendarPage() {
       await bookingsApi.cancel(confirmBooking.id);
       await loadBookings();
     } catch {
-      setError('Kunde inte avboka. Försök igen.');
+      setError('Could not cancel booking. Please try again.');
     } finally {
       setCancellingBooking(null);
     }
   }
 
-  const atBookingLimit = !isAdmin && myFutureCount >= 2;
+  const atBookingLimit = !isAdmin && myFutureCount >= 3;
 
   return (
     <div className="weekly-page">
       <div className="weekly-header">
         <div className="weekly-title">
-          <h1>Boka {court?.name ?? '...'}</h1>
-          {court && (
-            <span className={`surface-badge ${court.surface.toLowerCase()}`}>{court.surface}</span>
+          <h1>Book {resource?.name ?? '…'}</h1>
+          {resource && (
+            <span className="resource-type-badge">{resource.resourceType}</span>
           )}
         </div>
         <div className="week-nav">
@@ -197,7 +212,7 @@ export function WeeklyCalendarPage() {
             className="btn-secondary"
             onClick={() => { setWeekStart(w => addDays(w, -7)); setConfirmedSlot(null); }}
           >
-            ← Förra veckan
+            ← Prev week
           </button>
           <span className="week-label">
             {formatDate(weekDays[0])} – {formatDate(weekDays[6])}
@@ -206,28 +221,22 @@ export function WeeklyCalendarPage() {
             className="btn-secondary"
             onClick={() => { setWeekStart(w => addDays(w, 7)); setConfirmedSlot(null); }}
           >
-            Nästa vecka →
+            Next week →
           </button>
         </div>
       </div>
 
       {atBookingLimit && (
         <div className="booking-limit-notice">
-          Du kan bara boka två tider. Avboka en för att kunna boka igen.{' '}
-          <button className="link-btn" onClick={() => navigate('/my-bookings')}>Mina bokningar</button>
-        </div>
-      )}
-
-      {auth.isAuthenticated && !isMember && (
-        <div className="login-notice">
-          Du behöver rollen <strong>Medlem</strong> för att kunna boka tider. Kontakta en administratör.
+          You have reached the limit of 3 upcoming bookings.{' '}
+          <button className="link-btn" onClick={() => navigate('/my-bookings')}>My bookings</button>
         </div>
       )}
 
       {!auth.isAuthenticated && (
         <div className="login-notice">
-          <button className="link-btn" onClick={() => auth.signinRedirect()}>Logga in</button>
-          {' '}för att boka en tid.
+          <button className="link-btn" onClick={() => auth.signinRedirect()}>Sign in</button>
+          {' '}to book a slot.
         </div>
       )}
 
@@ -235,8 +244,8 @@ export function WeeklyCalendarPage() {
 
       {confirmedSlot && (
         <div className="success-notice">
-          ✅ Bokning bekräftad!{' '}
-          <button className="link-btn" onClick={() => navigate('/my-bookings')}>Visa mina bokningar</button>
+          ✅ Booking confirmed!{' '}
+          <button className="link-btn" onClick={() => navigate('/my-bookings')}>View my bookings</button>
         </div>
       )}
 
@@ -278,23 +287,26 @@ export function WeeklyCalendarPage() {
                 );
               })}
 
-              {/* Time rows */}
-              {HOURS.map(hour => (
-                <React.Fragment key={hour}>
-                  <div className="time-label">{hour}:00</div>
+              {/* Slot rows */}
+              {SLOTS.map(({ hour, minute }) => (
+                <React.Fragment key={`${hour}-${minute}`}>
+                  <div className="time-label">
+                    {minute === 0 ? `${hour}:00` : `${hour}:${String(minute).padStart(2, '0')}`}
+                  </div>
                   {visibleDays.map((day, di) => {
                     const dateStr = toDateStr(day);
-                    const slotKey = `${dateStr}-${hour}`;
-                    const { state, booking } = getSlotInfo(dateStr, hour);
+                    const slotKey = `${dateStr}-${hour}-${minute}`;
+                    const { state, booking } = getSlotInfo(dateStr, hour, minute);
                     const isLoading = loadingSlot === slotKey;
                     const isConfirmed = confirmedSlot === slotKey;
+                    const canBook = state === 'free' && auth.isAuthenticated && !atBookingLimit;
 
                     return (
                       <div
-                        key={`${di}-${hour}`}
-                        className={`slot slot-${state}${isLoading ? ' slot-loading' : ''}${isConfirmed ? ' slot-confirmed' : ''}${state === 'free' && auth.isAuthenticated && isMember && !atBookingLimit ? ' slot-clickable' : ''}`}
-                        onClick={() => handleSlotClick(dateStr, hour)}
-                        role={state === 'free' && auth.isAuthenticated && isMember && !atBookingLimit ? 'button' : undefined}
+                        key={`${di}-${hour}-${minute}`}
+                        className={`slot slot-${state}${isLoading ? ' slot-loading' : ''}${isConfirmed ? ' slot-confirmed' : ''}${canBook ? ' slot-clickable' : ''}`}
+                        onClick={() => handleSlotClick(dateStr, hour, minute)}
+                        role={canBook ? 'button' : undefined}
                         title={
                           state === 'taken' && booking
                             ? `${booking.userName}${booking.userPhone ? ` · ${booking.userPhone}` : ''}`
@@ -304,18 +316,14 @@ export function WeeklyCalendarPage() {
                         {isLoading && <span className="slot-spinner">⏳</span>}
                         {state === 'mine' && !isLoading && booking && (
                           <span className="slot-label">
-                            <span>Du</span>
+                            <span>You</span>
                             <span className="slot-actions">
-                              <button
-                                className="slot-info-btn"
-                                onClick={e => { e.stopPropagation(); setInfoBooking(booking); }}
-                                title="Visa info"
-                              >ⓘ</button>
+                              <button className="slot-info-btn" onClick={e => { e.stopPropagation(); setInfoBooking(booking); }} title="Info">ⓘ</button>
                               <button
                                 className="slot-admin-cancel"
                                 onClick={e => { e.stopPropagation(); setConfirmBooking(booking); }}
                                 disabled={cancellingBooking === booking.id}
-                                title="Avboka"
+                                title="Cancel"
                               >
                                 {cancellingBooking === booking.id ? '…' : '×'}
                               </button>
@@ -326,33 +334,29 @@ export function WeeklyCalendarPage() {
                           <span className="slot-label">
                             {auth.isAuthenticated
                               ? <><span className="slot-name">{booking.userName}</span>
-                                {booking.userPhone && (
-                                  <span className="slot-phone">{booking.userPhone}</span>
-                                )}
+                                {booking.userPhone && <span className="slot-phone">{booking.userPhone}</span>}
                                 <span className="slot-actions">
-                                  <button
-                                    className="slot-info-btn"
-                                    onClick={e => { e.stopPropagation(); setInfoBooking(booking); }}
-                                    title="Visa info"
-                                  >ⓘ</button>
+                                  <button className="slot-info-btn" onClick={e => { e.stopPropagation(); setInfoBooking(booking); }} title="Info">ⓘ</button>
                                   {isAdmin && (
                                     <button
                                       className="slot-admin-cancel"
                                       onClick={e => { e.stopPropagation(); setConfirmBooking(booking); }}
                                       disabled={cancellingBooking === booking.id}
-                                      title="Avboka (admin)"
+                                      title="Cancel (admin)"
                                     >
                                       {cancellingBooking === booking.id ? '…' : '×'}
                                     </button>
                                   )}
                                 </span></>
-                              : <span className="slot-name">Bokad</span>
+                              : <span className="slot-name">Booked</span>
                             }
                           </span>
                         )}
                         {state === 'free' && !isLoading && auth.isAuthenticated && !atBookingLimit && (
                           <span className="slot-free-icon">
-                            <span className="slot-hover-time">{hour}:00</span>
+                            <span className="slot-hover-time">
+                              {hour}:{String(minute).padStart(2, '0')}
+                            </span>
                             <span className="slot-plus">+</span>
                           </span>
                         )}
@@ -367,49 +371,31 @@ export function WeeklyCalendarPage() {
       </div>
 
       <div className="calendar-legend">
-        <span className="legend-item"><span className="legend-swatch swatch-free" />Ledig</span>
-        <span className="legend-item"><span className="legend-swatch swatch-mine" />Din bokning</span>
-        <span className="legend-item"><span className="legend-swatch swatch-taken" />Bokad</span>
-        <span className="legend-item"><span className="legend-swatch swatch-past" />Passerad</span>
+        <span className="legend-item"><span className="legend-swatch swatch-free" />Free</span>
+        <span className="legend-item"><span className="legend-swatch swatch-mine" />Your booking</span>
+        <span className="legend-item"><span className="legend-swatch swatch-taken" />Booked</span>
+        <span className="legend-item"><span className="legend-swatch swatch-past" />Past</span>
       </div>
 
       {infoBooking && (
         <div className="confirm-overlay" onClick={() => setInfoBooking(null)}>
           <div className="confirm-dialog" onClick={e => e.stopPropagation()}>
-            <h3>Bokningsinformation</h3>
+            <h3>Booking info</h3>
             <div className="info-rows">
               {(infoBooking.userFirstName || infoBooking.userLastName) ? (
                 <>
-                  <div className="info-row">
-                    <span className="info-label">Förnamn</span>
-                    <span>{infoBooking.userFirstName || '–'}</span>
-                  </div>
-                  <div className="info-row">
-                    <span className="info-label">Efternamn</span>
-                    <span>{infoBooking.userLastName || '–'}</span>
-                  </div>
+                  <div className="info-row"><span className="info-label">First name</span><span>{infoBooking.userFirstName || '–'}</span></div>
+                  <div className="info-row"><span className="info-label">Last name</span><span>{infoBooking.userLastName || '–'}</span></div>
                 </>
               ) : (
-                <div className="info-row">
-                  <span className="info-label">Namn</span>
-                  <span>{infoBooking.userName || '–'}</span>
-                </div>
+                <div className="info-row"><span className="info-label">Name</span><span>{infoBooking.userName || '–'}</span></div>
               )}
-              <div className="info-row">
-                <span className="info-label">Telefon</span>
-                <span>{infoBooking.userPhone || '–'}</span>
-              </div>
-              <div className="info-row">
-                <span className="info-label">Datum</span>
-                <span>📅 {infoBooking.date}</span>
-              </div>
-              <div className="info-row">
-                <span className="info-label">Tid</span>
-                <span>⏰ {infoBooking.startTime.slice(0, 5)}–{infoBooking.endTime.slice(0, 5)}</span>
-              </div>
+              <div className="info-row"><span className="info-label">Phone</span><span>{infoBooking.userPhone || '–'}</span></div>
+              <div className="info-row"><span className="info-label">Date</span><span>📅 {infoBooking.date}</span></div>
+              <div className="info-row"><span className="info-label">Time</span><span>⏰ {infoBooking.startTime.slice(0, 5)}–{infoBooking.endTime.slice(0, 5)}</span></div>
             </div>
             <div className="confirm-actions">
-              <button className="btn-primary" onClick={() => setInfoBooking(null)}>Stäng</button>
+              <button className="btn-primary" onClick={() => setInfoBooking(null)}>Close</button>
             </div>
           </div>
         </div>
@@ -418,36 +404,21 @@ export function WeeklyCalendarPage() {
       {confirmBooking && (
         <div className="confirm-overlay" onClick={() => setConfirmBooking(null)}>
           <div className="confirm-dialog" onClick={e => e.stopPropagation()}>
-            <h3>Avboka bokning?</h3>
+            <h3>Cancel booking?</h3>
             <div className="info-rows">
               {confirmBooking.userId !== myUserId && (
                 <>
-                  <div className="info-row">
-                    <span className="info-label">Förnamn</span>
-                    <span>{confirmBooking.userFirstName || '–'}</span>
-                  </div>
-                  <div className="info-row">
-                    <span className="info-label">Efternamn</span>
-                    <span>{confirmBooking.userLastName || '–'}</span>
-                  </div>
-                  <div className="info-row">
-                    <span className="info-label">Telefon</span>
-                    <span>{confirmBooking.userPhone || '–'}</span>
-                  </div>
+                  <div className="info-row"><span className="info-label">First name</span><span>{confirmBooking.userFirstName || '–'}</span></div>
+                  <div className="info-row"><span className="info-label">Last name</span><span>{confirmBooking.userLastName || '–'}</span></div>
+                  <div className="info-row"><span className="info-label">Phone</span><span>{confirmBooking.userPhone || '–'}</span></div>
                 </>
               )}
-              <div className="info-row">
-                <span className="info-label">Datum</span>
-                <span>📅 {confirmBooking.date}</span>
-              </div>
-              <div className="info-row">
-                <span className="info-label">Tid</span>
-                <span>⏰ {confirmBooking.startTime.slice(0, 5)}–{confirmBooking.endTime.slice(0, 5)}</span>
-              </div>
+              <div className="info-row"><span className="info-label">Date</span><span>📅 {confirmBooking.date}</span></div>
+              <div className="info-row"><span className="info-label">Time</span><span>⏰ {confirmBooking.startTime.slice(0, 5)}–{confirmBooking.endTime.slice(0, 5)}</span></div>
             </div>
             <div className="confirm-actions">
-              <button className="btn-danger" onClick={confirmAdminCancel}>Avboka</button>
-              <button className="btn-secondary" onClick={() => setConfirmBooking(null)}>Avbryt</button>
+              <button className="btn-danger" onClick={confirmAdminCancel}>Cancel booking</button>
+              <button className="btn-secondary" onClick={() => setConfirmBooking(null)}>Keep it</button>
             </div>
           </div>
         </div>

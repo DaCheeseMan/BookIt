@@ -3,11 +3,13 @@ import { useAuth } from 'react-oidc-context';
 import { adminApi, type AdminUser, type AdminCreateUserRequest, type AdminUpdateUserRequest } from '../api/client';
 import './AdminUsersPage.css';
 
+const ALL_ROLES = ['member', 'tenant-admin', 'admin'] as const;
+type AppRole = typeof ALL_ROLES[number];
+
 function RoleBadge({ role }: { role: string }) {
+  const label = role === 'admin' ? 'Admin' : role === 'tenant-admin' ? 'Tenant Admin' : 'Member';
   return (
-    <span className={`role-badge role-badge--${role}`}>
-      {role === 'admin' ? 'Admin' : 'Medlem'}
-    </span>
+    <span className={`role-badge role-badge--${role}`}>{label}</span>
   );
 }
 
@@ -22,30 +24,34 @@ function EditUserForm({ user, onSave, onCancel }: EditFormProps) {
   const [lastName, setLastName] = useState(user.lastName ?? '');
   const [email, setEmail] = useState(user.email ?? '');
   const [phoneNumber, setPhoneNumber] = useState(user.phoneNumber ?? '');
-  const [isMember, setIsMember] = useState(user.roles.includes('member'));
-  const [isAdmin, setIsAdmin] = useState(user.roles.includes('admin'));
+  const [roles, setRoles] = useState<Set<AppRole>>(new Set(user.roles as AppRole[]));
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
+
+  function toggleRole(role: AppRole) {
+    setRoles(prev => {
+      const next = new Set(prev);
+      if (next.has(role)) next.delete(role); else next.add(role);
+      return next;
+    });
+  }
 
   async function handleSave(e: React.FormEvent) {
     e.preventDefault();
     setError(null);
     setSaving(true);
-    const roles: string[] = [];
-    if (isMember) roles.push('member');
-    if (isAdmin) roles.push('admin');
     try {
       const req: AdminUpdateUserRequest = {
         firstName: firstName.trim() || undefined,
         lastName: lastName.trim() || undefined,
         email: email.trim() || undefined,
         phoneNumber: phoneNumber.trim() || undefined,
-        roles,
+        roles: Array.from(roles),
       };
       await adminApi.updateUser(user.id, req);
       onSave();
     } catch {
-      setError('Kunde inte spara användaren.');
+      setError('Could not save user.');
       setSaving(false);
     }
   }
@@ -55,44 +61,38 @@ function EditUserForm({ user, onSave, onCancel }: EditFormProps) {
       {error && <div className="error-banner">⚠️ {error}</div>}
       <div className="form-row">
         <div className="form-group">
-          <label>Förnamn</label>
-          <input type="text" value={firstName} onChange={e => setFirstName(e.target.value)} placeholder="Förnamn" />
+          <label>First name</label>
+          <input type="text" value={firstName} onChange={e => setFirstName(e.target.value)} placeholder="First name" />
         </div>
         <div className="form-group">
-          <label>Efternamn</label>
-          <input type="text" value={lastName} onChange={e => setLastName(e.target.value)} placeholder="Efternamn" />
+          <label>Last name</label>
+          <input type="text" value={lastName} onChange={e => setLastName(e.target.value)} placeholder="Last name" />
         </div>
       </div>
       <div className="form-row">
         <div className="form-group">
-          <label>E-postadress</label>
-          <input type="email" value={email} onChange={e => setEmail(e.target.value)} placeholder="epost@exempel.se" />
+          <label>Email</label>
+          <input type="email" value={email} onChange={e => setEmail(e.target.value)} placeholder="email@example.com" />
         </div>
         <div className="form-group">
-          <label>Telefonnummer</label>
-          <input type="tel" value={phoneNumber} onChange={e => setPhoneNumber(e.target.value)} placeholder="070-000 00 00" />
+          <label>Phone number</label>
+          <input type="tel" value={phoneNumber} onChange={e => setPhoneNumber(e.target.value)} placeholder="+1 234 567 8900" />
         </div>
       </div>
       <div className="form-group">
-        <label>Roller</label>
+        <label>Roles</label>
         <div className="role-checkboxes">
-          <label className="checkbox-label">
-            <input type="checkbox" checked={isMember} onChange={e => setIsMember(e.target.checked)} />
-            Medlem
-          </label>
-          <label className="checkbox-label">
-            <input type="checkbox" checked={isAdmin} onChange={e => setIsAdmin(e.target.checked)} />
-            Admin
-          </label>
+          {ALL_ROLES.map(r => (
+            <label key={r} className="checkbox-label">
+              <input type="checkbox" checked={roles.has(r)} onChange={() => toggleRole(r)} />
+              {r === 'admin' ? 'Admin' : r === 'tenant-admin' ? 'Tenant Admin' : 'Member'}
+            </label>
+          ))}
         </div>
       </div>
       <div className="form-actions">
-        <button type="submit" className="btn btn-primary" disabled={saving}>
-          {saving ? 'Sparar...' : 'Spara'}
-        </button>
-        <button type="button" className="btn btn-secondary" onClick={onCancel} disabled={saving}>
-          Avbryt
-        </button>
+        <button type="submit" className="btn btn-primary" disabled={saving}>{saving ? 'Saving…' : 'Save'}</button>
+        <button type="button" className="btn btn-secondary" onClick={onCancel} disabled={saving}>Cancel</button>
       </div>
     </form>
   );
@@ -109,18 +109,22 @@ function CreateUserForm({ onCreated, onCancel }: CreateFormProps) {
   const [email, setEmail] = useState('');
   const [phoneNumber, setPhoneNumber] = useState('');
   const [temporaryPassword, setTemporaryPassword] = useState('');
-  const [isMember, setIsMember] = useState(true);
-  const [isAdmin, setIsAdmin] = useState(false);
+  const [roles, setRoles] = useState<Set<AppRole>>(new Set(['member'] as AppRole[]));
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
+
+  function toggleRole(role: AppRole) {
+    setRoles(prev => {
+      const next = new Set(prev);
+      if (next.has(role)) next.delete(role); else next.add(role);
+      return next;
+    });
+  }
 
   async function handleCreate(e: React.FormEvent) {
     e.preventDefault();
     setError(null);
     setSaving(true);
-    const roles: string[] = [];
-    if (isMember) roles.push('member');
-    if (isAdmin) roles.push('admin');
     try {
       const req: AdminCreateUserRequest = {
         firstName: firstName.trim() || undefined,
@@ -128,66 +132,61 @@ function CreateUserForm({ onCreated, onCancel }: CreateFormProps) {
         email: email.trim(),
         phoneNumber: phoneNumber.trim() || undefined,
         temporaryPassword,
-        roles,
+        roles: Array.from(roles),
       };
       await adminApi.createUser(req);
       onCreated();
     } catch {
-      setError('Kunde inte skapa användaren. Kontrollera att e-postadressen inte redan är registrerad.');
+      setError('Could not create user. Check the email is not already registered.');
       setSaving(false);
     }
   }
 
   return (
     <form className="create-user-form" onSubmit={handleCreate} noValidate>
-      <h2>Lägg till ny användare</h2>
+      <h2>Add new user</h2>
       {error && <div className="error-banner">⚠️ {error}</div>}
       <div className="form-row">
         <div className="form-group">
-          <label>Förnamn</label>
-          <input type="text" value={firstName} onChange={e => setFirstName(e.target.value)} placeholder="Förnamn" />
+          <label>First name</label>
+          <input type="text" value={firstName} onChange={e => setFirstName(e.target.value)} placeholder="First name" />
         </div>
         <div className="form-group">
-          <label>Efternamn</label>
-          <input type="text" value={lastName} onChange={e => setLastName(e.target.value)} placeholder="Efternamn" />
+          <label>Last name</label>
+          <input type="text" value={lastName} onChange={e => setLastName(e.target.value)} placeholder="Last name" />
         </div>
       </div>
       <div className="form-row">
         <div className="form-group">
-          <label>E-postadress <span className="required">*</span></label>
-          <input type="email" value={email} onChange={e => setEmail(e.target.value)} placeholder="epost@exempel.se" required />
+          <label>Email <span className="required">*</span></label>
+          <input type="email" value={email} onChange={e => setEmail(e.target.value)} placeholder="email@example.com" required />
         </div>
         <div className="form-group">
-          <label>Telefonnummer</label>
-          <input type="tel" value={phoneNumber} onChange={e => setPhoneNumber(e.target.value)} placeholder="070-000 00 00" />
+          <label>Phone number</label>
+          <input type="tel" value={phoneNumber} onChange={e => setPhoneNumber(e.target.value)} placeholder="+1 234 567 8900" />
         </div>
       </div>
       <div className="form-group">
-        <label>Tillfälligt lösenord <span className="required">*</span></label>
-        <input type="text" value={temporaryPassword} onChange={e => setTemporaryPassword(e.target.value)}
-          placeholder="Användaren måste byta lösenord vid första inloggning" required />
-        <span className="field-hint">Användaren uppmanas att byta lösenord vid nästa inloggning.</span>
+        <label>Temporary password <span className="required">*</span></label>
+        <input type="text" value={temporaryPassword} onChange={e => setTemporaryPassword(e.target.value)} placeholder="User will be asked to change on first login" required />
+        <span className="field-hint">The user will be prompted to set a new password on next login.</span>
       </div>
       <div className="form-group">
-        <label>Roller</label>
+        <label>Roles</label>
         <div className="role-checkboxes">
-          <label className="checkbox-label">
-            <input type="checkbox" checked={isMember} onChange={e => setIsMember(e.target.checked)} />
-            Medlem
-          </label>
-          <label className="checkbox-label">
-            <input type="checkbox" checked={isAdmin} onChange={e => setIsAdmin(e.target.checked)} />
-            Admin
-          </label>
+          {ALL_ROLES.map(r => (
+            <label key={r} className="checkbox-label">
+              <input type="checkbox" checked={roles.has(r)} onChange={() => toggleRole(r)} />
+              {r === 'admin' ? 'Admin' : r === 'tenant-admin' ? 'Tenant Admin' : 'Member'}
+            </label>
+          ))}
         </div>
       </div>
       <div className="form-actions">
         <button type="submit" className="btn btn-primary" disabled={saving || !email.trim() || !temporaryPassword.trim()}>
-          {saving ? 'Skapar...' : 'Skapa användare'}
+          {saving ? 'Creating…' : 'Create user'}
         </button>
-        <button type="button" className="btn btn-secondary" onClick={onCancel} disabled={saving}>
-          Avbryt
-        </button>
+        <button type="button" className="btn btn-secondary" onClick={onCancel} disabled={saving}>Cancel</button>
       </div>
     </form>
   );
@@ -201,7 +200,6 @@ interface UserCardProps {
 function UserCard({ user, onUpdated }: UserCardProps) {
   const [editing, setEditing] = useState(false);
   const [success, setSuccess] = useState(false);
-
   const displayName = [user.firstName, user.lastName].filter(Boolean).join(' ') || user.username;
 
   function handleSaved() {
@@ -222,33 +220,25 @@ function UserCard({ user, onUpdated }: UserCardProps) {
           </div>
           <div className="user-card-roles">
             {user.roles.length === 0
-              ? <span className="role-badge role-badge--none">Ingen roll</span>
+              ? <span className="role-badge role-badge--none">No role</span>
               : user.roles.map(r => <RoleBadge key={r} role={r} />)
             }
           </div>
         </div>
         <div className="user-card-actions">
-          {success && <span className="save-success">✅ Sparat</span>}
+          {success && <span className="save-success">✅ Saved</span>}
           {!editing && (
-            <button className="btn btn-secondary btn-sm" onClick={() => setEditing(true)}>
-              Redigera
-            </button>
+            <button className="btn btn-secondary btn-sm" onClick={() => setEditing(true)}>Edit</button>
           )}
         </div>
       </div>
-      {editing && (
-        <EditUserForm
-          user={user}
-          onSave={handleSaved}
-          onCancel={() => setEditing(false)}
-        />
-      )}
+      {editing && <EditUserForm user={user} onSave={handleSaved} onCancel={() => setEditing(false)} />}
     </div>
   );
 }
 
-const PAGE_SIZE_OPTIONS = [20, 50, 0] as const; // 0 = All
-type RoleFilter = 'all' | 'none' | 'member' | 'admin';
+const PAGE_SIZE_OPTIONS = [20, 50, 0] as const;
+type RoleFilter = 'all' | 'none' | 'member' | 'tenant-admin' | 'admin';
 
 function matchesRoleFilter(user: AdminUser, filter: RoleFilter): boolean {
   if (filter === 'all') return true;
@@ -258,12 +248,10 @@ function matchesRoleFilter(user: AdminUser, filter: RoleFilter): boolean {
 
 function sortUsers(users: AdminUser[]): AdminUser[] {
   return [...users].sort((a, b) => {
-    const firstA = (a.firstName ?? '').toLowerCase();
-    const firstB = (b.firstName ?? '').toLowerCase();
-    if (firstA !== firstB) return firstA.localeCompare(firstB, 'sv');
-    const lastA = (a.lastName ?? '').toLowerCase();
-    const lastB = (b.lastName ?? '').toLowerCase();
-    return lastA.localeCompare(lastB, 'sv');
+    const fa = (a.firstName ?? '').toLowerCase();
+    const fb = (b.firstName ?? '').toLowerCase();
+    if (fa !== fb) return fa.localeCompare(fb);
+    return (a.lastName ?? '').toLowerCase().localeCompare((b.lastName ?? '').toLowerCase());
   });
 }
 
@@ -282,16 +270,11 @@ export function AdminUsersPage() {
     setError(null);
     adminApi.getUsers()
       .then(setUsers)
-      .catch(() => setError('Kunde inte hämta användarlistan.'))
+      .catch(() => setError('Could not load users.'))
       .finally(() => setLoading(false));
   }
 
   useEffect(() => { loadUsers(); }, [auth.user?.access_token]);
-
-  function handleCreated() {
-    setShowCreateForm(false);
-    loadUsers();
-  }
 
   const query = search.trim().toLowerCase();
   const filtered = sortUsers(users).filter(u => {
@@ -307,32 +290,26 @@ export function AdminUsersPage() {
   const visible = pageSize === 0 ? filtered : filtered.slice(0, pageSize);
 
   const ROLE_FILTER_LABELS: Record<RoleFilter, string> = {
-    all: 'Alla',
-    none: 'Ingen roll',
-    member: 'Medlem',
-    admin: 'Admin',
+    all: 'All', none: 'No role', member: 'Member', 'tenant-admin': 'Tenant Admin', admin: 'Admin',
   };
 
   return (
     <div className="admin-users-page">
       <div className="page-header">
         <div>
-          <h1>Användarhantering</h1>
-          <p>Hantera klubbens användare och deras roller</p>
+          <h1>User management</h1>
+          <p>Manage users and their roles</p>
         </div>
         {!showCreateForm && (
           <button className="btn btn-primary" onClick={() => setShowCreateForm(true)}>
-            + Lägg till ny användare
+            + Add new user
           </button>
         )}
       </div>
 
       {showCreateForm && (
         <div className="create-form-container">
-          <CreateUserForm
-            onCreated={handleCreated}
-            onCancel={() => setShowCreateForm(false)}
-          />
+          <CreateUserForm onCreated={() => { setShowCreateForm(false); loadUsers(); }} onCancel={() => setShowCreateForm(false)} />
         </div>
       )}
 
@@ -343,12 +320,12 @@ export function AdminUsersPage() {
           <input
             className="users-search"
             type="search"
-            placeholder="Sök på namn, e-post eller användarnamn…"
+            placeholder="Search by name, email or username…"
             value={search}
             onChange={e => setSearch(e.target.value)}
           />
           <div className="role-filter-chips">
-            {(['all', 'none', 'member', 'admin'] as RoleFilter[]).map(f => (
+            {(['all', 'none', 'member', 'tenant-admin', 'admin'] as RoleFilter[]).map(f => (
               <button
                 key={f}
                 className={`filter-chip${roleFilter === f ? ' filter-chip--active' : ''}`}
@@ -359,14 +336,14 @@ export function AdminUsersPage() {
             ))}
           </div>
           <div className="page-size-control">
-            <span>Visa</span>
+            <span>Show</span>
             {PAGE_SIZE_OPTIONS.map(n => (
               <button
                 key={n}
                 className={`filter-chip${pageSize === n ? ' filter-chip--active' : ''}`}
                 onClick={() => setPageSize(n)}
               >
-                {n === 0 ? 'Alla' : n}
+                {n === 0 ? 'All' : n}
               </button>
             ))}
           </div>
@@ -374,19 +351,17 @@ export function AdminUsersPage() {
       )}
 
       {loading ? (
-        <div className="loading">Laddar användare...</div>
+        <div className="loading">Loading users…</div>
       ) : (
         <div className="users-list">
           <div className="users-count">
-            Visar {visible.length} av {filtered.length}
-            {filtered.length !== users.length ? ` (${users.length} totalt)` : ' användare'}
+            Showing {visible.length} of {filtered.length}
+            {filtered.length !== users.length ? ` (${users.length} total)` : ' users'}
           </div>
-          {visible.map(u => (
-            <UserCard key={u.id} user={u} onUpdated={loadUsers} />
-          ))}
+          {visible.map(u => <UserCard key={u.id} user={u} onUpdated={loadUsers} />)}
           {pageSize !== 0 && filtered.length > pageSize && (
             <div className="users-truncated">
-              {filtered.length - pageSize} användare döljs — öka gränsen eller förfina sökningen.
+              {filtered.length - pageSize} users hidden — increase the limit or refine search.
             </div>
           )}
         </div>

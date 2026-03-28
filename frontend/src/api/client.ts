@@ -12,7 +12,6 @@ export function setAuthToken(token: string | null) {
 
 type SigninSilentFn = () => Promise<{ access_token: string } | null | undefined>;
 type SignoutFn = () => Promise<void>;
-
 let _signinSilent: SigninSilentFn | null = null;
 let _signout: SignoutFn | null = null;
 
@@ -21,8 +20,6 @@ export function setupAuthHandlers(signinSilent: SigninSilentFn, signout: Signout
   _signout = signout;
 }
 
-// On 401, try a silent token renewal and retry the request once.
-// If renewal fails, sign the user out.
 apiClient.interceptors.response.use(
   res => res,
   async (error) => {
@@ -37,7 +34,6 @@ apiClient.interceptors.response.use(
           return apiClient(original);
         }
       } catch {
-        // Silent renewal failed — sign out so the user can log in again
         await _signout?.();
         return Promise.reject(error);
       }
@@ -46,26 +42,46 @@ apiClient.interceptors.response.use(
   }
 );
 
-export interface Court {
+export interface Tenant {
   id: number;
   name: string;
-  surface: string;
+  slug: string;
   description: string;
+  ownerId: string;
+  createdAt: string;
+}
+
+export interface Resource {
+  id: number;
+  tenantId: number;
+  name: string;
+  description: string;
+  resourceType: string;
+  slotDurationMinutes: number;
+  maxAdvanceDays: number;
+  isActive: boolean;
 }
 
 export interface Booking {
   id: number;
-  courtId: number;
-  court: Court;
+  resourceId: number;
+  tenantId: number;
   userId: string;
   userName: string;
+  userFirstName: string;
+  userLastName: string;
   userPhone: string;
   date: string;
   startTime: string;
   endTime: string;
+  createdAt: string;
+  resourceName: string;
+  resourceType: string;
+  tenantName: string;
+  tenantSlug: string;
 }
 
-export interface CourtBooking {
+export interface ResourceBooking {
   id: number;
   date: string;
   startTime: string;
@@ -78,9 +94,9 @@ export interface CourtBooking {
 }
 
 export interface CreateBookingRequest {
-  courtId: number;
+  resourceId: number;
   date: string;
-  startHour: number;
+  startTime: string;
 }
 
 export interface UserProfile {
@@ -89,24 +105,6 @@ export interface UserProfile {
   email?: string;
   attributes?: Record<string, string[]>;
 }
-
-export const courtsApi = {
-  getAll: () => apiClient.get<Court[]>('/courts').then(r => r.data),
-  getById: (id: number) => apiClient.get<Court>(`/courts/${id}`).then(r => r.data),
-};
-
-export const bookingsApi = {
-  getMine: () => apiClient.get<Booking[]>('/bookings').then(r => r.data),
-  create: (req: CreateBookingRequest) => apiClient.post<Booking>('/bookings', req).then(r => r.data),
-  cancel: (id: number) => apiClient.delete(`/bookings/${id}`),
-  getForCourt: (courtId: number, from: string, to: string) =>
-    apiClient.get<CourtBooking[]>(`/courts/${courtId}/bookings`, { params: { from, to } }).then(r => r.data),
-};
-
-export const profileApi = {
-  get: () => apiClient.get<UserProfile>('/profile').then(r => r.data),
-  update: (profile: UserProfile) => apiClient.post<void>('/profile', profile),
-};
 
 export interface AdminUser {
   id: string;
@@ -135,13 +133,48 @@ export interface AdminUpdateUserRequest {
   roles: string[];
 }
 
+export const tenantsApi = {
+  getAll: () => apiClient.get<Tenant[]>('/tenants').then(r => r.data),
+  getById: (idOrSlug: string | number) => apiClient.get<Tenant>(`/tenants/${idOrSlug}`).then(r => r.data),
+  create: (req: { name: string; slug: string; description?: string }) =>
+    apiClient.post<Tenant>('/tenants', req).then(r => r.data),
+  update: (id: number, req: { name?: string; description?: string }) =>
+    apiClient.put<Tenant>(`/tenants/${id}`, req).then(r => r.data),
+  delete: (id: number) => apiClient.delete(`/tenants/${id}`),
+};
+
+export const resourcesApi = {
+  getAll: (tenantId: number) =>
+    apiClient.get<Resource[]>(`/tenants/${tenantId}/resources`).then(r => r.data),
+  getById: (tenantId: number, resourceId: number) =>
+    apiClient.get<Resource>(`/tenants/${tenantId}/resources/${resourceId}`).then(r => r.data),
+  create: (tenantId: number, req: { name: string; description?: string; resourceType: string; slotDurationMinutes: number; maxAdvanceDays: number }) =>
+    apiClient.post<Resource>(`/tenants/${tenantId}/resources`, req).then(r => r.data),
+  update: (tenantId: number, resourceId: number, req: Partial<Resource>) =>
+    apiClient.put<Resource>(`/tenants/${tenantId}/resources/${resourceId}`, req).then(r => r.data),
+  delete: (tenantId: number, resourceId: number) =>
+    apiClient.delete(`/tenants/${tenantId}/resources/${resourceId}`),
+  getBookings: (tenantId: number, resourceId: number, from: string, to: string) =>
+    apiClient.get<ResourceBooking[]>(`/tenants/${tenantId}/resources/${resourceId}/bookings`, { params: { from, to } }).then(r => r.data),
+};
+
+export const bookingsApi = {
+  getMine: () => apiClient.get<Booking[]>('/bookings').then(r => r.data),
+  create: (req: CreateBookingRequest) => apiClient.post<Booking>('/bookings', req).then(r => r.data),
+  cancel: (id: number) => apiClient.delete(`/bookings/${id}`),
+};
+
+export const profileApi = {
+  get: () => apiClient.get<UserProfile>('/profile').then(r => r.data),
+  update: (profile: UserProfile) => apiClient.post<void>('/profile', profile),
+};
+
 export const adminApi = {
   getUsers: () => apiClient.get<AdminUser[]>('/admin/users').then(r => r.data),
   createUser: (req: AdminCreateUserRequest) => apiClient.post<{ id: string }>('/admin/users', req).then(r => r.data),
   updateUser: (id: string, req: AdminUpdateUserRequest) => apiClient.put<void>(`/admin/users/${id}`, req),
 };
 
-// Parse admin role from the JWT access token (realm_access is in the access token, not the ID token)
 export function getUserRoles(accessToken: string | undefined): string[] {
   if (!accessToken) return [];
   try {

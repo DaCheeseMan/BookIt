@@ -14,12 +14,12 @@ import App from './App.tsx'
     const config = await res.json() as { keycloakAuthority: string }
     keycloakAuthority = config.keycloakAuthority
   } catch {
-    keycloakAuthority = `${import.meta.env.VITE_KEYCLOAK_URL ?? 'http://localhost:8080'}/realms/jtk`
+    keycloakAuthority = `${import.meta.env.VITE_KEYCLOAK_URL ?? 'http://localhost:8080'}/realms/bookit`
   }
 
   const oidcConfig = {
     authority: keycloakAuthority,
-    client_id: 'jtk-web',
+    client_id: 'bookit-web',
     redirect_uri: window.location.origin,
     post_logout_redirect_uri: window.location.origin,
     response_type: 'code',

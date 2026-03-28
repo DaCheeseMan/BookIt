@@ -1,114 +1,104 @@
 import { useAuth } from 'react-oidc-context';
-import { Link } from 'react-router-dom';
+import { useNavigate } from 'react-router-dom';
 import './LandingPage.css';
 
-const courts = [
-  { name: 'Bana 1', surface: 'Clay', icon: '🟤', desc: 'Utomhusbana med grusunderlag, perfekt för långa rallys.' },
-  { name: 'Bana 2', surface: 'Clay', icon: '🟤', desc: 'Utomhusbana med grusunderlag intill klubbhuset.' },
-  { name: 'Bana 3', surface: 'Hard', icon: '🔵', desc: 'Inomhusbana med hårt underlag, öppen året runt.' },
+const resourceTypes = [
+  { icon: '🧖', label: 'Sauna', desc: 'Wellness & relaxation facilities' },
+  { icon: '🍽️', label: 'Restaurant', desc: 'Dining rooms and private event spaces' },
+  { icon: '🏓', label: 'Sports court', desc: 'Tennis, padel, squash and more' },
+  { icon: '⛵', label: 'Boat / dock', desc: 'Marinas, boats and watercraft' },
+  { icon: '🚗', label: 'Vehicle', desc: 'Cars, vans and shared fleet' },
+  { icon: '🏢', label: 'Meeting room', desc: 'Conference and co-working spaces' },
 ];
 
 export function LandingPage() {
   const auth = useAuth();
+  const navigate = useNavigate();
+
+  function handleGetStarted() {
+    if (auth.isAuthenticated) {
+      navigate('/tenants');
+    } else {
+      auth.signinRedirect();
+    }
+  }
 
   return (
     <div className="landing">
       {/* Hero */}
       <section className="hero">
         <div className="hero-content">
-          <h1>Välkommen till<br /><span>Jonsereds TK</span></h1>
-          <p className="hero-tagline">
-            Boka en bana, träffa vänner och njut av tennis i hjärtat av Jonsered.
+          <h1>📅 BookIt</h1>
+          <p className="hero-tagline">Your resource, booked.</p>
+          <p className="hero-sub">
+            Create a bookable space for any resource — courts, saunas, boats, meeting rooms and more.
+            Share the link, let people book.
           </p>
           <div className="hero-cta">
-            {auth.isAuthenticated ? (
-              <Link to="/courts" className="cta-btn primary">Boka en bana →</Link>
-            ) : (
-              <>
-                <Link to="/courts" className="cta-btn primary">Se lediga tider →</Link>
-                <button className="cta-btn secondary" onClick={() => auth.signinRedirect()}>
-                  Logga in & boka
-                </button>
-              </>
+            <button className="cta-btn primary" onClick={handleGetStarted}>
+              {auth.isAuthenticated ? 'Go to my spaces →' : 'Get started — create your space'}
+            </button>
+            {!auth.isAuthenticated && (
+              <button className="cta-btn secondary" onClick={() => auth.signinRedirect()}>
+                Sign in
+              </button>
             )}
           </div>
         </div>
-        <div className="hero-image">🎾</div>
+        <div className="hero-image" aria-hidden="true">📅</div>
       </section>
 
-      {/* About */}
-      <section id="om-oss" className="about">
+      {/* Features */}
+      <section className="features">
         <div className="section-content">
-          <h2>Om Jonsereds TK</h2>
-          <p>
-            Jonsereds Tennisklubb är en familjevänlig klubb som har erbjudit
-            tennisglädje sedan 1970. Vi har tre välskötta banor och välkomnar
-            spelare på alla nivåer — från nybörjare till erfarna tävlingsspelare.
+          <h2>Book anything</h2>
+          <p className="section-lead">
+            BookIt works for any type of bookable resource. Set your slot duration, advance booking window and go.
           </p>
-          <div className="about-highlights">
-            <div className="highlight">
-              <span className="highlight-icon">🏆</span>
-              <strong>Tävlingsaktiv</strong>
-              <p>Vi deltar i SDS-serien och arrangerar lokala cuper.</p>
-            </div>
-            <div className="highlight">
-              <span className="highlight-icon">👶</span>
-              <strong>Träning för alla</strong>
-              <p>Juniorträning, vuxenkurser och individuella lektioner.</p>
-            </div>
-            <div className="highlight">
-              <span className="highlight-icon">🌿</span>
-              <strong>Vacker miljö</strong>
-              <p>Belägen i naturskön omgivning vid Säveån.</p>
-            </div>
-          </div>
-        </div>
-      </section>
-
-      {/* Courts */}
-      <section id="banor" className="courts-section">
-        <div className="section-content">
-          <h2>Våra banor</h2>
-          <div className="courts-grid">
-            {courts.map(c => (
-              <div key={c.name} className="court-card">
-                <div className="court-icon">{c.icon}</div>
-                <h3>{c.name}</h3>
-                <span className={`surface-badge ${c.surface.toLowerCase()}`}>{c.surface}</span>
-                <p>{c.desc}</p>
+          <div className="features-grid">
+            {resourceTypes.map(r => (
+              <div key={r.label} className="feature-card">
+                <span className="feature-icon">{r.icon}</span>
+                <strong>{r.label}</strong>
+                <p>{r.desc}</p>
               </div>
             ))}
           </div>
-          {!auth.isAuthenticated && (
-            <div className="courts-cta">
-              <p>Logga in för att boka en bana</p>
-              <div style={{ display: 'flex', gap: '1rem', justifyContent: 'center', flexWrap: 'wrap' }}>
-                <Link to="/courts" className="cta-btn secondary">Se lediga tider</Link>
-                <button className="cta-btn primary" onClick={() => auth.signinRedirect()}>
-                  Logga in
-                </button>
-              </div>
-            </div>
-          )}
         </div>
       </section>
 
-      {/* Contact */}
-      <section id="kontakt" className="contact">
+      {/* How it works */}
+      <section className="how-it-works">
         <div className="section-content">
-          <h2>Kontakt & Hitta hit</h2>
-          <div className="contact-grid">
-            <div>
-              <p>📍 Tennisvägen 1, 443 30 Lerum</p>
-              <p>📧 <a href="mailto:info@jonsereds-tk.se">info@jonsereds-tk.se</a></p>
-              <p>📞 0302-123 45</p>
+          <h2>How it works</h2>
+          <div className="steps-grid">
+            <div className="step">
+              <span className="step-num">1</span>
+              <strong>Create a space</strong>
+              <p>Sign in and create a tenant for your organisation or club.</p>
             </div>
-            <div>
-              <p><strong>Öppettider</strong></p>
-              <p>Mån–fre: 07:00–21:00</p>
-              <p>Lör–sön: 08:00–20:00</p>
+            <div className="step">
+              <span className="step-num">2</span>
+              <strong>Add resources</strong>
+              <p>Define each bookable resource, slot size and how far ahead people can book.</p>
+            </div>
+            <div className="step">
+              <span className="step-num">3</span>
+              <strong>Share & book</strong>
+              <p>Share your space URL. Members sign in and book slots in the weekly calendar.</p>
             </div>
           </div>
+        </div>
+      </section>
+
+      {/* CTA footer */}
+      <section className="cta-footer">
+        <div className="section-content cta-footer-content">
+          <h2>Ready to get started?</h2>
+          <p>Create your first bookable space in minutes — no credit card required.</p>
+          <button className="cta-btn primary cta-btn--large" onClick={handleGetStarted}>
+            {auth.isAuthenticated ? 'Go to my spaces →' : 'Create your space →'}
+          </button>
         </div>
       </section>
     </div>

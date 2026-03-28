@@ -4,18 +4,19 @@ import { useAuth } from 'react-oidc-context'
 import { Navbar } from './components/Navbar'
 import { ProtectedRoute } from './components/ProtectedRoute'
 import { LandingPage } from './pages/LandingPage'
-import { CourtsPage } from './pages/CourtsPage'
+import { TenantsPage } from './pages/TenantsPage'
+import { TenantPage } from './pages/TenantPage'
 import { WeeklyCalendarPage } from './pages/WeeklyCalendarPage'
 import { MyBookingsPage } from './pages/MyBookingsPage'
 import { ProfilePage } from './pages/ProfilePage'
 import { AdminUsersPage } from './pages/AdminUsersPage'
+import { TenantSettingsPage } from './pages/TenantSettingsPage'
 import { setAuthToken, setupAuthHandlers } from './api/client'
 import './App.css'
 
 function App() {
   const auth = useAuth()
 
-  // Keep the Axios token in sync and register auth handlers for the 401 interceptor
   useEffect(() => {
     setAuthToken(auth.user?.access_token ?? null)
     setupAuthHandlers(
@@ -24,13 +25,12 @@ function App() {
     )
   }, [auth, auth.user?.access_token])
 
-  // Handle OIDC callback (return from Keycloak)
   if (auth.isLoading) {
-    return <div className="app-loading">Laddar...</div>
+    return <div className="app-loading">Loading…</div>
   }
 
   if (auth.error) {
-    return <div className="app-error">Autentiseringsfel: {auth.error.message}</div>
+    return <div className="app-error">Authentication error: {auth.error.message}</div>
   }
 
   return (
@@ -39,17 +39,13 @@ function App() {
       <main>
         <Routes>
           <Route path="/" element={<LandingPage />} />
-          <Route path="/courts" element={<CourtsPage />} />
-          <Route path="/book/:courtId" element={<WeeklyCalendarPage />} />
-          <Route path="/my-bookings" element={
-            <ProtectedRoute><MyBookingsPage /></ProtectedRoute>
-          } />
-          <Route path="/profile" element={
-            <ProtectedRoute><ProfilePage /></ProtectedRoute>
-          } />
-          <Route path="/admin/users" element={
-            <ProtectedRoute><AdminUsersPage /></ProtectedRoute>
-          } />
+          <Route path="/tenants" element={<ProtectedRoute><TenantsPage /></ProtectedRoute>} />
+          <Route path="/tenants/:slug" element={<ProtectedRoute><TenantPage /></ProtectedRoute>} />
+          <Route path="/tenants/:slug/resources/:resourceId" element={<ProtectedRoute><WeeklyCalendarPage /></ProtectedRoute>} />
+          <Route path="/tenants/:slug/settings" element={<ProtectedRoute><TenantSettingsPage /></ProtectedRoute>} />
+          <Route path="/my-bookings" element={<ProtectedRoute><MyBookingsPage /></ProtectedRoute>} />
+          <Route path="/profile" element={<ProtectedRoute><ProfilePage /></ProtectedRoute>} />
+          <Route path="/admin/users" element={<ProtectedRoute><AdminUsersPage /></ProtectedRoute>} />
         </Routes>
       </main>
     </div>
@@ -57,4 +53,3 @@ function App() {
 }
 
 export default App
-

@@ -1,8 +1,8 @@
 {
-  "realm": "jtk",
-  "displayName": "Jonsereds TK",
+  "realm": "bookit",
+  "displayName": "BookIt",
   "enabled": true,
-  "registrationAllowed": false,
+  "registrationAllowed": true,
   "loginWithEmailAllowed": true,
   "duplicateEmailsAllowed": false,
   "resetPasswordAllowed": true,
@@ -16,14 +16,18 @@
       {
         "name": "admin",
         "description": "Club administrator"
+      },
+      {
+        "name": "tenant-admin",
+        "description": "Tenant administrator"
       }
     ]
   },
   "defaultRoles": [],
   "clients": [
     {
-      "clientId": "jtk-web",
-      "name": "Jonsereds TK Web",
+      "clientId": "bookit-web",
+      "name": "BookIt Web",
       "enabled": true,
       "publicClient": true,
       "standardFlowEnabled": true,
@@ -44,12 +48,12 @@
       "protocol": "openid-connect",
       "protocolMappers": [
         {
-          "name": "jtk-web-audience",
+          "name": "bookit-web-audience",
           "protocol": "openid-connect",
           "protocolMapper": "oidc-audience-mapper",
           "consentRequired": false,
           "config": {
-            "included.client.audience": "jtk-web",
+            "included.client.audience": "bookit-web",
             "id.token.claim": "false",
             "access.token.claim": "true"
           }
@@ -85,7 +89,7 @@
   "users": [
     {
       "username": "member1",
-      "email": "member1@jonsereds-tk.se",
+      "email": "member1@bookit.example",
       "firstName": "Anna",
       "lastName": "Johansson",
       "enabled": true,
@@ -107,7 +111,7 @@
     },
     {
       "username": "admin1",
-      "email": "admin1@jonsereds-tk.se",
+      "email": "admin1@bookit.example",
       "firstName": "Erik",
       "lastName": "Lindberg",
       "enabled": true,
@@ -136,7 +140,7 @@
         "subComponents": {},
         "config": {
           "kc.user.profile.config": [
-            "{\"attributes\": [{\"name\": \"username\", \"displayName\": \"${username}\", \"validations\": {\"length\": {\"min\": 3, \"max\": 255}, \"username-prohibited-characters\": {}, \"up-username-not-idn-homograph\": {}}, \"permissions\": {\"view\": [\"admin\", \"user\"], \"edit\": [\"admin\"]}}, {\"name\": \"email\", \"displayName\": \"${email}\", \"validations\": {\"email\": {}, \"length\": {\"max\": 255}}, \"required\": {\"roles\": [\"user\"]}, \"permissions\": {\"view\": [\"admin\", \"user\"], \"edit\": [\"admin\", \"user\"]}}, {\"name\": \"firstName\", \"displayName\": \"${firstName}\", \"validations\": {\"length\": {\"max\": 255}, \"person-name-prohibited-characters\": {}}, \"permissions\": {\"view\": [\"admin\", \"user\"], \"edit\": [\"admin\", \"user\"]}}, {\"name\": \"lastName\", \"displayName\": \"${lastName}\", \"validations\": {\"length\": {\"max\": 255}, \"person-name-prohibited-characters\": {}}, \"permissions\": {\"view\": [\"admin\", \"user\"], \"edit\": [\"admin\", \"user\"]}}, {\"name\": \"phone_number\", \"displayName\": \"Telefonnummer\", \"validations\": {\"length\": {\"max\": 50}}, \"required\": {\"roles\": [\"user\"]}, \"permissions\": {\"view\": [\"admin\", \"user\"], \"edit\": [\"admin\", \"user\"]}, \"annotations\": {}}], \"groups\": []}"
+            "{\"attributes\": [{\"name\": \"username\", \"displayName\": \"${username}\", \"validations\": {\"length\": {\"min\": 3, \"max\": 255}, \"username-prohibited-characters\": {}, \"up-username-not-idn-homograph\": {}}, \"permissions\": {\"view\": [\"admin\", \"user\"], \"edit\": [\"admin\"]}}, {\"name\": \"email\", \"displayName\": \"${email}\", \"validations\": {\"email\": {}, \"length\": {\"max\": 255}}, \"required\": {\"roles\": [\"user\"]}, \"permissions\": {\"view\": [\"admin\", \"user\"], \"edit\": [\"admin\", \"user\"]}}, {\"name\": \"firstName\", \"displayName\": \"${firstName}\", \"validations\": {\"length\": {\"max\": 255}, \"person-name-prohibited-characters\": {}}, \"permissions\": {\"view\": [\"admin\", \"user\"], \"edit\": [\"admin\", \"user\"]}}, {\"name\": \"lastName\", \"displayName\": \"${lastName}\", \"validations\": {\"length\": {\"max\": 255}, \"person-name-prohibited-characters\": {}}, \"permissions\": {\"view\": [\"admin\", \"user\"], \"edit\": [\"admin\", \"user\"]}}, {\"name\": \"phone_number\", \"displayName\": \"Phone number\", \"validations\": {\"length\": {\"max\": 50}}, \"required\": {\"roles\": [\"user\"]}, \"permissions\": {\"view\": [\"admin\", \"user\"], \"edit\": [\"admin\", \"user\"]}, \"annotations\": {}}], \"groups\": []}"
           ]
         }
       }
