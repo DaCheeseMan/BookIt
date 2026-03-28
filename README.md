@@ -66,6 +66,18 @@ Restart your browser — the warning will be gone.
 3. Double-click the file → **Install Certificate** → **Local Machine** → **Place all certificates in the following store** → select **Trusted Root Certification Authorities** → **Finish**.
 4. Restart the browser.
 
+### Troubleshooting stale processes
+
+If Aspire was force-killed (crashed terminal, VS Code restart, etc.) old `dcp` and `BookIt` processes may still be running and holding ports. This causes SSL errors or services stuck in a waiting state. Clean them up with:
+
+```bash
+ps aux | grep -E 'BookIt\.(AppHost|Server)|dcp (run-controllers|start-apiserver|monitor)' | grep -v grep | awk '{print $2}' | xargs -I{} kill -9 {}
+```
+
+Then restart normally with `dotnet run` in `BookIt.AppHost/`.
+
+> **Prevention:** always stop Aspire cleanly with `Ctrl+C` in the AppHost terminal.
+
 The realm `bookit` is imported automatically from `realms/bookit-realm.json` with two test users:
 
 | Username | Password | Role |

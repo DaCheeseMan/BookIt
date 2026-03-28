@@ -78,7 +78,7 @@ var server = builder.AddProject<Projects.BookIt_Server>("server")
     .WithEnvironment("Keycloak__AdminPassword", keycloakPassword)
     .WaitFor(appDb)
     .WaitFor(keycloak)
-    .WithHttpHealthCheck("/health")
+    .WithHttpHealthCheck("/health", endpointName: "http")
     .WithExternalHttpEndpoints();
 
 // Augment PATH so Aspire can find npm regardless of how Node was installed
