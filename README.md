@@ -1,6 +1,6 @@
-# Jonsereds TK – Tennis Court Booking
+# BookIt — Multi-Tenant Resource Booking Platform
 
-Web application for Jonsereds Tennisklubb built with .NET Aspire, ASP.NET Core, Keycloak, and React.
+**BookIt** is a SaaS application that lets any organisation create a bookable space for their resources — courts, saunas, restaurant tables, boats, meeting rooms, cars, and more. Built with .NET Aspire, ASP.NET Core, Keycloak, and React.
 
 ## Stack
 
@@ -11,6 +11,13 @@ Web application for Jonsereds Tennisklubb built with .NET Aspire, ASP.NET Core, 
 | Auth | Keycloak (OIDC / Authorization Code + PKCE) |
 | Frontend | React 19 + Vite + TypeScript |
 | Hosting | Azure Container Apps (via `azd`) |
+
+## How it works
+
+1. **Sign up** — any user can register in Keycloak and log in.
+2. **Create a space** — give your organisation a name and slug (e.g. `padel-club`). You become the tenant admin.
+3. **Add resources** — add bookable items (type, slot duration, advance booking window).
+4. **Share the link** — members visit `/tenants/padel-club`, see availability, and book a slot.
 
 ## Getting Started
 
@@ -23,14 +30,14 @@ Web application for Jonsereds Tennisklubb built with .NET Aspire, ASP.NET Core, 
 ### Run locally
 
 ```bash
-cd JtK.AppHost
+cd BookIt.AppHost
 dotnet run
 ```
 
 Aspire will start:
 - **Keycloak** on http://localhost:8080 (admin: `admin` / `admin`)
 - **PostgreSQL** for app data
-- **API** (JtK.Server) proxied at `/api`
+- **API** (BookIt.Server) proxied at `/api`
 - **React frontend** (Vite dev server, served over HTTPS via a self-signed certificate)
 
 ### Trusting the local HTTPS certificate
@@ -59,7 +66,7 @@ Restart your browser — the warning will be gone.
 3. Double-click the file → **Install Certificate** → **Local Machine** → **Place all certificates in the following store** → select **Trusted Root Certification Authorities** → **Finish**.
 4. Restart the browser.
 
-The realm `jtk` is imported automatically from `realms/jtk-realm.json` with two test users:
+The realm `bookit` is imported automatically from `realms/bookit-realm.json` with two test users:
 
 | Username | Password | Role |
 |---|---|---|
@@ -109,9 +116,9 @@ Keycloak starts with an empty database in Azure. The realm must be imported manu
    - Username: `admin`
    - Password: the value you set for the **KeycloakPassword** parameter during `azd up`
 
-3. In the top-left realm dropdown, click **Create realm** → **Browse** and upload `realms/jtk-realm.json` → **Create**
+3. In the top-left realm dropdown, click **Create realm** → **Browse** and upload `realms/bookit-realm.json` → **Create**
 
-4. After import, go to **Clients → jtk-web → Valid redirect URIs** and add the public URL of the **server** Container App (the frontend is served from the same container):
+4. After import, go to **Clients → bookit-web → Valid redirect URIs** and add the public URL of the **server** Container App (the frontend is served from the same container):
    ```
    https://<server-url>
    https://<server-url>/*
@@ -127,17 +134,17 @@ azd down        # deletes all provisioned Azure resources
 ## Project Structure
 
 ```
-jtk-aspire/
-├── JtK.AppHost/          # Aspire orchestration (AppHost.cs)
-├── JtK.Server/           # ASP.NET Core Web API
-│   ├── Models/           # Court, Booking entities
+BookIt/
+├── BookIt.AppHost/       # Aspire orchestration (AppHost.cs)
+├── BookIt.Server/        # ASP.NET Core Web API
+│   ├── Models/           # Tenant, Resource, Booking entities
 │   ├── Data/             # AppDbContext + EF migrations
 │   └── Program.cs        # Minimal API endpoints + JWT auth
 ├── frontend/             # React (Vite + TypeScript)
 │   └── src/
-│       ├── api/          # Axios client (courts, bookings)
+│       ├── api/          # Axios client (tenants, resources, bookings)
 │       ├── components/   # Navbar, ProtectedRoute
-│       └── pages/        # LandingPage, CourtsPage, BookingPage, MyBookingsPage
+│       └── pages/        # LandingPage, TenantsPage, TenantPage, WeeklyCalendarPage, MyBookingsPage, TenantSettingsPage
 └── realms/               # Keycloak realm JSON (local dev import)
 ```
 
@@ -145,8 +152,16 @@ jtk-aspire/
 
 | Method | Path | Auth | Description |
 |---|---|---|---|
-| GET | `/api/courts` | Public | List all courts |
-| GET | `/api/courts/{id}` | Public | Court details |
+| GET | `/api/tenants` | Public | List all tenants |
+| GET | `/api/tenants/{idOrSlug}` | Public | Tenant details |
+| POST | `/api/tenants` | ✅ JWT | Create tenant (caller becomes owner) |
+| PUT | `/api/tenants/{id}` | ✅ Owner/Admin | Update tenant |
+| DELETE | `/api/tenants/{id}` | ✅ Owner/Admin | Delete tenant |
+| GET | `/api/tenants/{id}/resources` | Public | List resources |
+| POST | `/api/tenants/{id}/resources` | ✅ Owner/Admin | Add resource |
+| PUT | `/api/tenants/{id}/resources/{rid}` | ✅ Owner/Admin | Update resource |
+| DELETE | `/api/tenants/{id}/resources/{rid}` | ✅ Owner/Admin | Delete resource |
+| GET | `/api/tenants/{id}/resources/{rid}/bookings` | Public* | Slot availability (*user details hidden when anonymous) |
 | GET | `/api/bookings` | ✅ JWT | My bookings |
 | POST | `/api/bookings` | ✅ JWT | Create booking |
 | DELETE | `/api/bookings/{id}` | ✅ JWT | Cancel booking |
