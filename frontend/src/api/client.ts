@@ -49,6 +49,7 @@ export interface Tenant {
   slug: string;
   description: string;
   ownerId: string;
+  visibility: 'Public' | 'Private';
   createdAt: string;
 }
 
@@ -134,14 +135,41 @@ export interface AdminUpdateUserRequest {
   roles: string[];
 }
 
+export interface Member {
+  userId: string;
+  role: 'Member' | 'Admin';
+  joinedAt: string;
+  firstName?: string;
+  lastName?: string;
+  email?: string;
+}
+
+export interface AddMemberRequest {
+  userId?: string;
+  email?: string;
+  role?: 'Member' | 'Admin';
+}
+
 export const tenantsApi = {
   getAll: () => apiClient.get<Tenant[]>('/tenants').then(r => r.data),
   getById: (idOrSlug: string | number) => apiClient.get<Tenant>(`/tenants/${idOrSlug}`).then(r => r.data),
-  create: (req: { name: string; slug: string; description?: string }) =>
+  create: (req: { name: string; slug: string; description?: string; visibility?: 'Public' | 'Private' }) =>
     apiClient.post<Tenant>('/tenants', req).then(r => r.data),
-  update: (id: number, req: { name?: string; description?: string }) =>
+  update: (id: number, req: { name?: string; description?: string; visibility?: 'Public' | 'Private' }) =>
     apiClient.put<Tenant>(`/tenants/${id}`, req).then(r => r.data),
   delete: (id: number) => apiClient.delete(`/tenants/${id}`),
+};
+
+export const membersApi = {
+  getAll: (tenantId: number) => apiClient.get<Member[]>(`/tenants/${tenantId}/members`).then(r => r.data),
+  add: (tenantId: number, req: AddMemberRequest) =>
+    apiClient.post<Member>(`/tenants/${tenantId}/members`, req).then(r => r.data),
+  remove: (tenantId: number, userId: string) =>
+    apiClient.delete(`/tenants/${tenantId}/members/${userId}`),
+  join: (tenantId: number) =>
+    apiClient.post<Member>(`/tenants/${tenantId}/join`).then(r => r.data),
+  leave: (tenantId: number) =>
+    apiClient.delete(`/tenants/${tenantId}/leave`),
 };
 
 export const resourcesApi = {

@@ -74,6 +74,7 @@ export function WeeklyCalendarPage() {
   const [infoBooking, setInfoBooking] = useState<ResourceBooking | null>(null);
   const [loadingSlot, setLoadingSlot] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
+  const [forbidden, setForbidden] = useState(false);
   const [confirmedSlot, setConfirmedSlot] = useState<string | null>(null);
 
   const myUserId = auth.user?.profile.sub;
@@ -128,7 +129,14 @@ export function WeeklyCalendarPage() {
     tenantsApi.getById(slug).then(t => {
       setTenantId(t.id);
       return resourcesApi.getById(t.id, Number(resourceId));
-    }).then(setResource).catch(() => setError('Resource not found.'));
+    }).then(setResource).catch((err: unknown) => {
+      const axiosErr = err as { response?: { status?: number } };
+      if (axiosErr?.response?.status === 403) {
+        setForbidden(true);
+      } else {
+        setError('Resource not found.');
+      }
+    });
   }, [auth.user, slug, resourceId]);
 
   useEffect(() => {
@@ -203,6 +211,22 @@ export function WeeklyCalendarPage() {
   }
 
   const atBookingLimit = !isAdmin && myFutureCount >= 3;
+
+  if (forbidden) {
+    return (
+      <div className="max-w-xl mx-auto px-4 sm:px-6 py-16 text-center">
+        <div className="text-5xl mb-4">🔒</div>
+        <h2 className="text-2xl font-bold text-slate-900 mb-2">Access denied</h2>
+        <p className="text-slate-500 mb-6">You are not a member of this private space.</p>
+        <button
+          className="text-indigo-600 hover:underline text-sm font-semibold"
+          onClick={() => window.history.back()}
+        >
+          ← Go back
+        </button>
+      </div>
+    );
+  }
 
   return (
     <div className="max-w-6xl mx-auto px-4 sm:px-6 py-6">

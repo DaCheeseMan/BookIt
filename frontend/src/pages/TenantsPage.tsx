@@ -1,6 +1,7 @@
 import { useEffect, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { tenantsApi, type Tenant } from '../api/client';
+import { useAuth } from 'react-oidc-context';
+import { tenantsApi, membersApi, type Tenant } from '../api/client';
 
 function toSlug(name: string): string {
   return name
@@ -13,15 +14,19 @@ function toSlug(name: string): string {
 
 export function TenantsPage() {
   const navigate = useNavigate();
+  const auth = useAuth();
+  const myUserId = auth.user?.profile.sub;
   const [tenants, setTenants] = useState<Tenant[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [showForm, setShowForm] = useState(false);
+  const [joiningId, setJoiningId] = useState<number | null>(null);
 
   const [name, setName] = useState('');
   const [slug, setSlug] = useState('');
   const [slugEdited, setSlugEdited] = useState(false);
   const [description, setDescription] = useState('');
+  const [visibility, setVisibility] = useState<'Public' | 'Private'>('Public');
   const [creating, setCreating] = useState(false);
   const [formError, setFormError] = useState<string | null>(null);
 
@@ -46,7 +51,7 @@ export function TenantsPage() {
     }
     setCreating(true);
     try {
-      const tenant = await tenantsApi.create({ name: name.trim(), slug: slug.trim(), description: description.trim() || undefined });
+      const tenant = await tenantsApi.create({ name: name.trim(), slug: slug.trim(), description: description.trim() || undefined, visibility });
       navigate(`/tenants/${tenant.slug}/settings`);
     } catch (err: unknown) {
       const axiosErr = err as { response?: { data?: string | { title?: string } } };
@@ -54,6 +59,18 @@ export function TenantsPage() {
       const msg = typeof data === 'string' ? data : data?.title;
       setFormError(msg ?? 'Could not create space.');
       setCreating(false);
+    }
+  }
+
+  async function handleJoin(tenant: Tenant, e: React.MouseEvent) {
+    e.stopPropagation();
+    setJoiningId(tenant.id);
+    try {
+      await membersApi.join(tenant.id);
+      navigate(`/tenants/${tenant.slug}`);
+    } catch {
+      setError('Could not join this space.');
+      setJoiningId(null);
     }
   }
 
@@ -119,6 +136,21 @@ export function TenantsPage() {
                 rows={3}
               />
             </div>
+            <div className="mb-5">
+              <label className="block text-sm font-semibold text-slate-700 mb-1.5">Visibility</label>
+              <div className="flex gap-3 flex-wrap">
+                <label className={`flex items-center gap-2 px-4 py-2.5 rounded-xl border cursor-pointer transition-colors ${visibility === 'Public' ? 'border-indigo-600 bg-indigo-50 text-indigo-700' : 'border-slate-300 text-slate-600 hover:bg-slate-50'}`}>
+                  <input type="radio" name="visibility" value="Public" checked={visibility === 'Public'} onChange={() => setVisibility('Public')} className="sr-only" />
+                  🌐 <span className="text-sm font-semibold">Public</span>
+                  <span className="text-xs text-slate-500 hidden sm:inline">— anyone can browse and book</span>
+                </label>
+                <label className={`flex items-center gap-2 px-4 py-2.5 rounded-xl border cursor-pointer transition-colors ${visibility === 'Private' ? 'border-indigo-600 bg-indigo-50 text-indigo-700' : 'border-slate-300 text-slate-600 hover:bg-slate-50'}`}>
+                  <input type="radio" name="visibility" value="Private" checked={visibility === 'Private'} onChange={() => setVisibility('Private')} className="sr-only" />
+                  🔒 <span className="text-sm font-semibold">Private</span>
+                  <span className="text-xs text-slate-500 hidden sm:inline">— members only</span>
+                </label>
+              </div>
+            </div>
             <div className="flex flex-wrap gap-3 mt-6">
               <button type="submit" className="bg-indigo-600 hover:bg-indigo-700 text-white font-semibold px-5 py-2.5 rounded-xl transition-colors cursor-pointer disabled:opacity-50 disabled:cursor-not-allowed min-h-[44px] max-md:w-full" disabled={creating || !name.trim() || !slug.trim()}>
                 {creating ? 'Creating…' : 'Create space'}
@@ -139,23 +171,45 @@ export function TenantsPage() {
         </div>
       ) : (
         <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
-          {tenants.map(t => (
-            <div
-              key={t.id}
-              className="bg-white rounded-2xl shadow-sm border border-slate-200/60 p-5 cursor-pointer flex gap-4 items-start transition-all hover:shadow-md hover:border-indigo-200 outline-none focus:ring-2 focus:ring-indigo-600"
-              role="button"
-              tabIndex={0}
-              onClick={() => navigate(`/tenants/${t.slug}`)}
-              onKeyDown={e => e.key === 'Enter' && navigate(`/tenants/${t.slug}`)}
-            >
-              <div className="text-3xl shrink-0">📅</div>
-              <div className="min-w-0">
-                <h3 className="text-base font-bold text-slate-900 truncate mb-1">{t.name}</h3>
-                {t.description && <p className="text-sm text-slate-500 leading-snug mb-1">{t.description}</p>}
-                <span className="text-xs text-slate-400 font-mono">/{t.slug}</span>
+          {tenants.map(t => {
+            const isOwner = t.ownerId === myUserId;
+            const isPrivate = t.visibility === 'Private';
+            return (
+              <div
+                key={t.id}
+                className="bg-white rounded-2xl shadow-sm border border-slate-200/60 p-5 flex flex-col gap-3 transition-all hover:shadow-md hover:border-indigo-200"
+              >
+                <div
+                  className="flex gap-4 items-start cursor-pointer outline-none focus:ring-2 focus:ring-indigo-600 rounded-xl"
+                  role="button"
+                  tabIndex={0}
+                  onClick={() => navigate(`/tenants/${t.slug}`)}
+                  onKeyDown={e => e.key === 'Enter' && navigate(`/tenants/${t.slug}`)}
+                >
+                  <div className="text-3xl shrink-0">{isPrivate ? '🔒' : '📅'}</div>
+                  <div className="min-w-0 flex-1">
+                    <div className="flex items-center gap-2 flex-wrap mb-1">
+                      <h3 className="text-base font-bold text-slate-900 truncate">{t.name}</h3>
+                      <span className={`text-xs font-semibold px-2 py-0.5 rounded-full ${isPrivate ? 'bg-amber-100 text-amber-700' : 'bg-emerald-100 text-emerald-700'}`}>
+                        {isPrivate ? 'Private' : 'Public'}
+                      </span>
+                    </div>
+                    {t.description && <p className="text-sm text-slate-500 leading-snug mb-1">{t.description}</p>}
+                    <span className="text-xs text-slate-400 font-mono">/{t.slug}</span>
+                  </div>
+                </div>
+                {isPrivate && !isOwner && (
+                  <button
+                    className="w-full bg-indigo-600 hover:bg-indigo-700 text-white font-semibold px-4 py-2 rounded-xl text-sm transition-colors cursor-pointer disabled:opacity-50 min-h-[40px]"
+                    disabled={joiningId === t.id}
+                    onClick={e => handleJoin(t, e)}
+                  >
+                    {joiningId === t.id ? 'Joining…' : 'Request to join'}
+                  </button>
+                )}
               </div>
-            </div>
-          ))}
+            );
+          })}
         </div>
       )}
     </div>

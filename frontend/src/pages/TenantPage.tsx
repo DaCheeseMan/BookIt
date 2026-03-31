@@ -1,7 +1,7 @@
 import { useEffect, useState } from 'react';
 import { useNavigate, useParams } from 'react-router-dom';
 import { useAuth } from 'react-oidc-context';
-import { tenantsApi, resourcesApi, type Tenant, type Resource } from '../api/client';
+import { tenantsApi, resourcesApi, membersApi, type Tenant, type Resource } from '../api/client';
 
 const RESOURCE_TYPE_ICONS: Record<string, string> = {
   court: '🏓', tennis: '🎾', padel: '🏓', sauna: '🧖', spa: '💆',
@@ -27,37 +27,118 @@ export function TenantPage() {
   const [resources, setResources] = useState<Resource[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
+  const [forbidden, setForbidden] = useState(false);
+  const [isMember, setIsMember] = useState(false);
+  const [joiningId, setJoiningId] = useState<number | null>(null);
 
   const myUserId = auth.user?.profile.sub;
   const isOwner = tenant?.ownerId === myUserId;
 
   useEffect(() => {
     if (!slug) return;
+    setForbidden(false);
     tenantsApi.getById(slug)
       .then(async (t) => {
         setTenant(t);
-        const res = await resourcesApi.getAll(t.id);
-        setResources(res);
+        try {
+          const res = await resourcesApi.getAll(t.id);
+          setResources(res);
+          setIsMember(true);
+        } catch (err: unknown) {
+          const axiosErr = err as { response?: { status?: number } };
+          if (axiosErr?.response?.status === 403) {
+            setForbidden(true);
+          } else {
+            setError('Could not load resources.');
+          }
+        }
       })
       .catch(() => setError('Space not found.'))
       .finally(() => setLoading(false));
   }, [slug]);
 
+  async function handleJoin() {
+    if (!tenant) return;
+    setJoiningId(tenant.id);
+    try {
+      await membersApi.join(tenant.id);
+      setIsMember(true);
+      setForbidden(false);
+      const res = await resourcesApi.getAll(tenant.id);
+      setResources(res);
+    } catch {
+      setError('Could not join this space.');
+    } finally {
+      setJoiningId(null);
+    }
+  }
+
+  async function handleLeave() {
+    if (!tenant || !confirm('Leave this space?')) return;
+    try {
+      await membersApi.leave(tenant.id);
+      navigate('/tenants');
+    } catch {
+      setError('Could not leave this space.');
+    }
+  }
+
   if (loading) return <div className="flex justify-center items-center h-48 text-slate-500 text-lg">Loading space…</div>;
   if (error || !tenant) return <div className="bg-red-50 border border-red-200 text-red-700 rounded-xl px-4 py-3 text-sm mb-6">⚠️ {error ?? 'Space not found.'}</div>;
+
+  if (forbidden) {
+    return (
+      <div className="max-w-xl mx-auto px-4 sm:px-6 py-16 text-center">
+        <div className="text-5xl mb-4">🔒</div>
+        <h2 className="text-2xl font-bold text-slate-900 mb-2">{tenant.name}</h2>
+        <p className="text-slate-500 mb-6">This is a private space. You need to be a member to view and book resources.</p>
+        {tenant.visibility === 'Public' ? (
+          <button
+            className="bg-indigo-600 hover:bg-indigo-700 text-white font-semibold px-6 py-3 rounded-xl transition-colors cursor-pointer min-h-[44px] disabled:opacity-50"
+            onClick={handleJoin}
+            disabled={joiningId !== null}
+          >
+            {joiningId !== null ? 'Joining…' : 'Join this space'}
+          </button>
+        ) : (
+          <div>
+            <p className="text-slate-400 text-sm mt-2">Contact the space owner to request access.</p>
+            <button
+              className="mt-4 text-indigo-600 hover:underline text-sm font-semibold"
+              onClick={() => navigate('/tenants')}
+            >
+              ← Back to spaces
+            </button>
+          </div>
+        )}
+      </div>
+    );
+  }
 
   return (
     <div className="max-w-5xl mx-auto px-4 sm:px-6 lg:px-8 py-8">
       <div className="flex flex-wrap items-start justify-between gap-4 mb-8 max-md:flex-col">
         <div>
-          <h1 className="text-3xl font-bold text-slate-900">{tenant.name}</h1>
+          <div className="flex items-center gap-2 mb-1 flex-wrap">
+            <h1 className="text-3xl font-bold text-slate-900">{tenant.name}</h1>
+            <span className={`text-xs font-semibold px-2 py-0.5 rounded-full ${tenant.visibility === 'Private' ? 'bg-amber-100 text-amber-700' : 'bg-emerald-100 text-emerald-700'}`}>
+              {tenant.visibility === 'Private' ? '🔒 Private' : '🌐 Public'}
+            </span>
+          </div>
           {tenant.description && <p className="text-slate-500 mt-1">{tenant.description}</p>}
         </div>
-        {isOwner && (
-          <button className="bg-white hover:bg-slate-50 text-slate-700 font-semibold px-5 py-2.5 rounded-xl border border-slate-200 transition-colors cursor-pointer min-h-[44px] max-md:w-full" onClick={() => navigate(`/tenants/${slug}/settings`)}>
-            ⚙️ Settings
-          </button>
-        )}
+        <div className="flex gap-2 flex-wrap max-md:w-full">
+          {isOwner && (
+            <button className="bg-white hover:bg-slate-50 text-slate-700 font-semibold px-5 py-2.5 rounded-xl border border-slate-200 transition-colors cursor-pointer min-h-[44px] max-md:w-full" onClick={() => navigate(`/tenants/${slug}/settings`)}>
+              ⚙️ Settings
+            </button>
+          )}
+          {!isOwner && isMember && (
+            <button className="bg-white hover:bg-red-50 text-red-600 font-semibold px-4 py-2.5 rounded-xl border border-red-200 transition-colors cursor-pointer min-h-[44px] text-sm max-md:w-full" onClick={handleLeave}>
+              Leave space
+            </button>
+          )}
+        </div>
       </div>
 
       {resources.length === 0 ? (

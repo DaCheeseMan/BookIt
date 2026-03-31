@@ -8,6 +8,7 @@ public class AppDbContext(DbContextOptions<AppDbContext> options) : DbContext(op
     public DbSet<Tenant> Tenants => Set<Tenant>();
     public DbSet<Resource> Resources => Set<Resource>();
     public DbSet<Booking> Bookings => Set<Booking>();
+    public DbSet<Membership> Memberships => Set<Membership>();
 
     protected override void OnModelCreating(ModelBuilder modelBuilder)
     {
@@ -28,5 +29,15 @@ public class AppDbContext(DbContextOptions<AppDbContext> options) : DbContext(op
             .WithMany(r => r.Bookings)
             .HasForeignKey(b => b.ResourceId)
             .OnDelete(DeleteBehavior.Cascade);
+
+        modelBuilder.Entity<Membership>()
+            .HasOne(m => m.Tenant)
+            .WithMany(t => t.Memberships)
+            .HasForeignKey(m => m.TenantId)
+            .OnDelete(DeleteBehavior.Cascade);
+
+        modelBuilder.Entity<Membership>()
+            .HasIndex(m => new { m.TenantId, m.UserId })
+            .IsUnique();
     }
 }
