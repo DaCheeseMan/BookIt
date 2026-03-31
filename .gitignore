@@ -484,3 +484,4 @@ node_modules/
 frontend/dist/
 .azure
 frontend/obj/
+frontend/obj\\
