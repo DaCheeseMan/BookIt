@@ -483,3 +483,4 @@ $RECYCLE.BIN/
 node_modules/
 frontend/dist/
 .azure
+frontend/obj/
