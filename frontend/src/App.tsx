@@ -1,5 +1,5 @@
 import { useEffect } from 'react'
-import { Route, Routes } from 'react-router-dom'
+import { Route, Routes, useLocation } from 'react-router-dom'
 import { useAuth } from 'react-oidc-context'
 import { Navbar } from './components/Navbar'
 import { PasskeyPromptBanner } from './components/PasskeyPromptBanner'
@@ -17,6 +17,8 @@ import './App.css'
 
 function App() {
   const auth = useAuth()
+  const location = useLocation()
+  const isLandingPage = location.pathname === '/'
 
   useEffect(() => {
     setAuthToken(auth.user?.access_token ?? null)
@@ -36,8 +38,8 @@ function App() {
 
   return (
     <div className="app">
-      <Navbar />
-      <PasskeyPromptBanner />
+      {!isLandingPage && <Navbar />}
+      {!isLandingPage && <PasskeyPromptBanner />}
       <main>
         <Routes>
           <Route path="/" element={<LandingPage />} />

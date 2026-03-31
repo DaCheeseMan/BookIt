@@ -2,7 +2,6 @@ import React, { useEffect, useState, useCallback } from 'react';
 import { useNavigate, useParams } from 'react-router-dom';
 import { useAuth } from 'react-oidc-context';
 import { bookingsApi, resourcesApi, tenantsApi, getUserRoles, setAuthToken, type Resource, type ResourceBooking } from '../api/client';
-import './WeeklyCalendarPage.css';
 
 const DAY_NAMES = ['Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat', 'Sun'];
 
@@ -52,6 +51,13 @@ interface SlotInfo {
   state: SlotState;
   booking?: ResourceBooking;
 }
+
+const SLOT_STATE_CLASSES: Record<SlotState, string> = {
+  past: 'bg-slate-100 cursor-not-allowed',
+  free: 'bg-white text-slate-400',
+  mine: 'bg-indigo-100 cursor-default',
+  taken: 'bg-red-50 cursor-default',
+};
 
 export function WeeklyCalendarPage() {
   const { slug, resourceId } = useParams<{ slug: string; resourceId: string }>();
@@ -199,26 +205,26 @@ export function WeeklyCalendarPage() {
   const atBookingLimit = !isAdmin && myFutureCount >= 3;
 
   return (
-    <div className="weekly-page">
-      <div className="weekly-header">
-        <div className="weekly-title">
-          <h1>Book {resource?.name ?? '…'}</h1>
+    <div className="max-w-6xl mx-auto px-4 sm:px-6 py-6">
+      <div className="flex flex-wrap items-center justify-between gap-4 mb-4 max-sm:flex-col max-sm:items-start">
+        <div className="flex items-center gap-3">
+          <h1 className="text-2xl font-bold text-slate-900">Book {resource?.name ?? '…'}</h1>
           {resource && (
-            <span className="resource-type-badge">{resource.resourceType}</span>
+            <span className="bg-indigo-100 text-indigo-700 rounded-full px-3 py-0.5 text-xs font-semibold">{resource.resourceType}</span>
           )}
         </div>
-        <div className="week-nav">
+        <div className="flex items-center gap-3 flex-wrap max-sm:w-full max-sm:justify-between">
           <button
-            className="btn-secondary"
+            className="bg-white hover:bg-indigo-600 text-indigo-600 hover:text-white font-semibold px-4 py-2 rounded-xl border-[1.5px] border-indigo-200 hover:border-indigo-600 text-sm cursor-pointer transition-colors"
             onClick={() => { setWeekStart(w => addDays(w, -7)); setConfirmedSlot(null); }}
           >
             ← Prev week
           </button>
-          <span className="week-label">
+          <span className="font-semibold text-slate-800 min-w-[11rem] text-center max-sm:min-w-0 max-sm:text-sm">
             {formatDate(weekDays[0])} – {formatDate(weekDays[6])}
           </span>
           <button
-            className="btn-secondary"
+            className="bg-white hover:bg-indigo-600 text-indigo-600 hover:text-white font-semibold px-4 py-2 rounded-xl border-[1.5px] border-indigo-200 hover:border-indigo-600 text-sm cursor-pointer transition-colors"
             onClick={() => { setWeekStart(w => addDays(w, 7)); setConfirmedSlot(null); }}
           >
             Next week →
@@ -227,62 +233,75 @@ export function WeeklyCalendarPage() {
       </div>
 
       {atBookingLimit && (
-        <div className="booking-limit-notice">
+        <div className="bg-amber-50 border border-amber-200 rounded-xl px-4 py-3 mb-4 text-amber-800 text-sm">
           You have reached the limit of 3 upcoming bookings.{' '}
-          <button className="link-btn" onClick={() => navigate('/my-bookings')}>My bookings</button>
+          <button className="bg-transparent border-none text-[inherit] font-bold cursor-pointer underline p-0" onClick={() => navigate('/my-bookings')}>My bookings</button>
         </div>
       )}
 
       {!auth.isAuthenticated && (
-        <div className="login-notice">
-          <button className="link-btn" onClick={() => auth.signinRedirect()}>Sign in</button>
+        <div className="bg-indigo-50 border border-indigo-200 rounded-xl px-4 py-3 mb-4 text-indigo-800 text-sm">
+          <button className="bg-transparent border-none text-[inherit] font-bold cursor-pointer underline p-0" onClick={() => auth.signinRedirect()}>Sign in</button>
           {' '}to book a slot.
         </div>
       )}
 
-      {error && <div className="error-msg">{error}</div>}
+      {error && <div className="bg-red-50 border border-red-200 rounded-xl px-4 py-3 mb-4 text-red-700 text-sm">{error}</div>}
 
       {confirmedSlot && (
-        <div className="success-notice">
+        <div className="bg-emerald-50 border border-emerald-200 rounded-xl px-4 py-3 mb-4 text-emerald-700 text-sm">
           ✅ Booking confirmed!{' '}
-          <button className="link-btn" onClick={() => navigate('/my-bookings')}>View my bookings</button>
+          <button className="bg-transparent border-none text-[inherit] font-bold cursor-pointer underline p-0" onClick={() => navigate('/my-bookings')}>View my bookings</button>
         </div>
       )}
 
       {isMobile && (
-        <div className="day-picker">
+        <div className="flex gap-1.5 mb-3 overflow-x-auto pb-1">
           {weekDays.map((day, i) => {
             const ds = toDateStr(day);
             const todayStr = toDateStr(new Date());
+            const isActive = selectedDayIndex === i;
+            const isToday = ds === todayStr;
             return (
               <button
                 key={i}
-                className={`day-chip${selectedDayIndex === i ? ' day-chip--active' : ''}${ds === todayStr ? ' day-chip--today' : ''}`}
+                className={[
+                  'flex flex-col items-center px-2.5 py-2 rounded-xl border-[1.5px] min-w-[52px] min-h-[44px] shrink-0 transition-all',
+                  isActive
+                    ? 'bg-indigo-600 border-indigo-600 text-white'
+                    : isToday
+                      ? 'border-indigo-600 text-indigo-600 bg-white cursor-pointer'
+                      : 'border-slate-200 bg-white cursor-pointer',
+                ].join(' ')}
                 onClick={() => setSelectedDayIndex(i)}
               >
-                <span className="day-chip-name">{DAY_NAMES[i]}</span>
-                <span className="day-chip-date">{formatDate(day)}</span>
+                <span className="text-xs font-bold uppercase">{DAY_NAMES[i]}</span>
+                <span className="text-[0.7rem] opacity-80 mt-0.5">{formatDate(day)}</span>
               </button>
             );
           })}
         </div>
       )}
 
-      <div className="calendar-scroll">
+      <div className="overflow-x-auto rounded-xl shadow-md">
         {(() => {
           const visibleDays = isMobile ? [weekDays[selectedDayIndex]] : weekDays;
           return (
-            <div className={`calendar-grid${isMobile ? ' calendar-grid--mobile' : ''}`}>
+            <div
+              className={`grid border border-slate-200 rounded-xl overflow-hidden bg-slate-50 ${isMobile ? 'min-w-0' : 'min-w-[540px]'}`}
+              style={{ gridTemplateColumns: isMobile ? '3.5rem 1fr' : '3.5rem repeat(7, minmax(5.5rem, 1fr))' }}
+            >
               {/* Header row */}
-              <div className="time-header" />
+              <div className="bg-indigo-700" />
               {visibleDays.map((day, i) => {
                 const ds = toDateStr(day);
                 const todayStr = toDateStr(new Date());
                 const originalIdx = isMobile ? selectedDayIndex : i;
+                const isToday = ds === todayStr;
                 return (
-                  <div key={i} className={`day-header${ds === todayStr ? ' today' : ''}`}>
-                    <span className="day-name">{DAY_NAMES[originalIdx]}</span>
-                    <span className="day-date">{formatDate(day)}</span>
+                  <div key={i} className={`${isToday ? 'bg-indigo-500' : 'bg-indigo-700'} text-white flex flex-col items-center py-2 px-1 text-sm border-l border-indigo-600`}>
+                    <span className="font-bold">{DAY_NAMES[originalIdx]}</span>
+                    <span className="text-xs opacity-85">{formatDate(day)}</span>
                   </div>
                 );
               })}
@@ -290,7 +309,7 @@ export function WeeklyCalendarPage() {
               {/* Slot rows */}
               {SLOTS.map(({ hour, minute }) => (
                 <React.Fragment key={`${hour}-${minute}`}>
-                  <div className="time-label">
+                  <div className="bg-slate-100 text-xs text-slate-500 flex items-center justify-center border-t border-slate-200 font-semibold">
                     {minute === 0 ? `${hour}:00` : `${hour}:${String(minute).padStart(2, '0')}`}
                   </div>
                   {visibleDays.map((day, di) => {
@@ -304,7 +323,13 @@ export function WeeklyCalendarPage() {
                     return (
                       <div
                         key={`${di}-${hour}-${minute}`}
-                        className={`slot slot-${state}${isLoading ? ' slot-loading' : ''}${isConfirmed ? ' slot-confirmed' : ''}${canBook ? ' slot-clickable' : ''}`}
+                        className={[
+                          'min-h-[3.5rem] md:min-h-[3rem] flex items-center justify-center border-t border-l border-slate-200 text-xs px-1 py-0.5 transition-colors relative',
+                          SLOT_STATE_CLASSES[state],
+                          isLoading && 'opacity-60 pointer-events-none',
+                          isConfirmed && 'bg-indigo-100',
+                          canBook && 'cursor-pointer hover:bg-indigo-50 group',
+                        ].filter(Boolean).join(' ')}
                         onClick={() => handleSlotClick(dateStr, hour, minute)}
                         role={canBook ? 'button' : undefined}
                         title={
@@ -313,14 +338,14 @@ export function WeeklyCalendarPage() {
                             : undefined
                         }
                       >
-                        {isLoading && <span className="slot-spinner">⏳</span>}
+                        {isLoading && <span>⏳</span>}
                         {state === 'mine' && !isLoading && booking && (
-                          <span className="slot-label">
+                          <span className="flex flex-col items-center text-center gap-0.5 leading-tight break-words max-w-full font-bold text-indigo-700 text-sm">
                             <span>You</span>
-                            <span className="slot-actions">
-                              <button className="slot-info-btn" onClick={e => { e.stopPropagation(); setInfoBooking(booking); }} title="Info">ⓘ</button>
+                            <span className="flex gap-1 mt-0.5 justify-center">
+                              <button className="px-1 bg-indigo-50 border border-indigo-200 rounded text-indigo-600 text-xs cursor-pointer leading-snug hover:bg-indigo-100" onClick={e => { e.stopPropagation(); setInfoBooking(booking); }} title="Info">ⓘ</button>
                               <button
-                                className="slot-admin-cancel"
+                                className="block mt-0.5 px-1 bg-red-100 border border-red-300 rounded text-red-700 text-xs font-bold cursor-pointer leading-snug hover:bg-red-200 disabled:opacity-50 disabled:cursor-not-allowed"
                                 onClick={e => { e.stopPropagation(); setConfirmBooking(booking); }}
                                 disabled={cancellingBooking === booking.id}
                                 title="Cancel"
@@ -331,15 +356,15 @@ export function WeeklyCalendarPage() {
                           </span>
                         )}
                         {state === 'taken' && !isLoading && booking && (
-                          <span className="slot-label">
+                          <span className="flex flex-col items-center text-center gap-0.5 leading-tight break-words max-w-full">
                             {auth.isAuthenticated
-                              ? <><span className="slot-name">{booking.userName}</span>
-                                {booking.userPhone && <span className="slot-phone">{booking.userPhone}</span>}
-                                <span className="slot-actions">
-                                  <button className="slot-info-btn" onClick={e => { e.stopPropagation(); setInfoBooking(booking); }} title="Info">ⓘ</button>
+                              ? <><span className="text-red-700 font-semibold text-xs">{booking.userName}</span>
+                                {booking.userPhone && <span className="text-red-700 text-[0.7rem] opacity-85">{booking.userPhone}</span>}
+                                <span className="flex gap-1 mt-0.5 justify-center">
+                                  <button className="px-1 bg-indigo-50 border border-indigo-200 rounded text-indigo-600 text-xs cursor-pointer leading-snug hover:bg-indigo-100" onClick={e => { e.stopPropagation(); setInfoBooking(booking); }} title="Info">ⓘ</button>
                                   {isAdmin && (
                                     <button
-                                      className="slot-admin-cancel"
+                                      className="block mt-0.5 px-1 bg-red-100 border border-red-300 rounded text-red-700 text-xs font-bold cursor-pointer leading-snug hover:bg-red-200 disabled:opacity-50 disabled:cursor-not-allowed"
                                       onClick={e => { e.stopPropagation(); setConfirmBooking(booking); }}
                                       disabled={cancellingBooking === booking.id}
                                       title="Cancel (admin)"
@@ -348,16 +373,16 @@ export function WeeklyCalendarPage() {
                                     </button>
                                   )}
                                 </span></>
-                              : <span className="slot-name">Booked</span>
+                              : <span className="text-red-700 font-semibold text-xs">Booked</span>
                             }
                           </span>
                         )}
                         {state === 'free' && !isLoading && auth.isAuthenticated && !atBookingLimit && (
-                          <span className="slot-free-icon">
-                            <span className="slot-hover-time">
+                          <span className="flex flex-col items-center gap-px leading-none">
+                            <span className="text-[0.7rem] font-semibold text-indigo-600 opacity-0 transition-opacity pointer-events-none group-hover:opacity-100">
                               {hour}:{String(minute).padStart(2, '0')}
                             </span>
-                            <span className="slot-plus">+</span>
+                            <span className="text-lg text-slate-300 transition-colors group-hover:text-indigo-600">+</span>
                           </span>
                         )}
                       </div>
@@ -370,55 +395,55 @@ export function WeeklyCalendarPage() {
         })()}
       </div>
 
-      <div className="calendar-legend">
-        <span className="legend-item"><span className="legend-swatch swatch-free" />Free</span>
-        <span className="legend-item"><span className="legend-swatch swatch-mine" />Your booking</span>
-        <span className="legend-item"><span className="legend-swatch swatch-taken" />Booked</span>
-        <span className="legend-item"><span className="legend-swatch swatch-past" />Past</span>
+      <div className="flex flex-wrap gap-4 mt-4 text-sm text-slate-500">
+        <span className="flex items-center gap-1.5"><span className="inline-block w-4 h-4 rounded border border-slate-300 bg-white" />Free</span>
+        <span className="flex items-center gap-1.5"><span className="inline-block w-4 h-4 rounded border border-slate-300 bg-indigo-100" />Your booking</span>
+        <span className="flex items-center gap-1.5"><span className="inline-block w-4 h-4 rounded border border-slate-300 bg-red-50" />Booked</span>
+        <span className="flex items-center gap-1.5"><span className="inline-block w-4 h-4 rounded border border-slate-300 bg-slate-100" />Past</span>
       </div>
 
       {infoBooking && (
-        <div className="confirm-overlay" onClick={() => setInfoBooking(null)}>
-          <div className="confirm-dialog" onClick={e => e.stopPropagation()}>
-            <h3>Booking info</h3>
-            <div className="info-rows">
+        <div className="fixed inset-0 bg-black/45 flex items-center justify-center z-[100]" onClick={() => setInfoBooking(null)}>
+          <div className="bg-white rounded-2xl p-7 max-w-[360px] w-[90%] shadow-2xl" onClick={e => e.stopPropagation()}>
+            <h3 className="mb-3 text-lg font-semibold text-slate-900">Booking info</h3>
+            <div className="grid gap-x-4 gap-y-1.5 mb-5" style={{ gridTemplateColumns: 'auto 1fr' }}>
               {(infoBooking.userFirstName || infoBooking.userLastName) ? (
                 <>
-                  <div className="info-row"><span className="info-label">First name</span><span>{infoBooking.userFirstName || '–'}</span></div>
-                  <div className="info-row"><span className="info-label">Last name</span><span>{infoBooking.userLastName || '–'}</span></div>
+                  <div className="contents"><span className="font-semibold text-slate-500 text-sm whitespace-nowrap">First name</span><span className="text-slate-900 text-sm">{infoBooking.userFirstName || '–'}</span></div>
+                  <div className="contents"><span className="font-semibold text-slate-500 text-sm whitespace-nowrap">Last name</span><span className="text-slate-900 text-sm">{infoBooking.userLastName || '–'}</span></div>
                 </>
               ) : (
-                <div className="info-row"><span className="info-label">Name</span><span>{infoBooking.userName || '–'}</span></div>
+                <div className="contents"><span className="font-semibold text-slate-500 text-sm whitespace-nowrap">Name</span><span className="text-slate-900 text-sm">{infoBooking.userName || '–'}</span></div>
               )}
-              <div className="info-row"><span className="info-label">Phone</span><span>{infoBooking.userPhone || '–'}</span></div>
-              <div className="info-row"><span className="info-label">Date</span><span>📅 {infoBooking.date}</span></div>
-              <div className="info-row"><span className="info-label">Time</span><span>⏰ {infoBooking.startTime.slice(0, 5)}–{infoBooking.endTime.slice(0, 5)}</span></div>
+              <div className="contents"><span className="font-semibold text-slate-500 text-sm whitespace-nowrap">Phone</span><span className="text-slate-900 text-sm">{infoBooking.userPhone || '–'}</span></div>
+              <div className="contents"><span className="font-semibold text-slate-500 text-sm whitespace-nowrap">Date</span><span className="text-slate-900 text-sm">📅 {infoBooking.date}</span></div>
+              <div className="contents"><span className="font-semibold text-slate-500 text-sm whitespace-nowrap">Time</span><span className="text-slate-900 text-sm">⏰ {infoBooking.startTime.slice(0, 5)}–{infoBooking.endTime.slice(0, 5)}</span></div>
             </div>
-            <div className="confirm-actions">
-              <button className="btn-primary" onClick={() => setInfoBooking(null)}>Close</button>
+            <div className="flex gap-3 justify-end">
+              <button className="bg-indigo-600 hover:bg-indigo-700 text-white border-none rounded-lg px-5 py-2 text-sm font-semibold cursor-pointer transition-colors" onClick={() => setInfoBooking(null)}>Close</button>
             </div>
           </div>
         </div>
       )}
 
       {confirmBooking && (
-        <div className="confirm-overlay" onClick={() => setConfirmBooking(null)}>
-          <div className="confirm-dialog" onClick={e => e.stopPropagation()}>
-            <h3>Cancel booking?</h3>
-            <div className="info-rows">
+        <div className="fixed inset-0 bg-black/45 flex items-center justify-center z-[100]" onClick={() => setConfirmBooking(null)}>
+          <div className="bg-white rounded-2xl p-7 max-w-[360px] w-[90%] shadow-2xl" onClick={e => e.stopPropagation()}>
+            <h3 className="mb-3 text-lg font-semibold text-slate-900">Cancel booking?</h3>
+            <div className="grid gap-x-4 gap-y-1.5 mb-5" style={{ gridTemplateColumns: 'auto 1fr' }}>
               {confirmBooking.userId !== myUserId && (
                 <>
-                  <div className="info-row"><span className="info-label">First name</span><span>{confirmBooking.userFirstName || '–'}</span></div>
-                  <div className="info-row"><span className="info-label">Last name</span><span>{confirmBooking.userLastName || '–'}</span></div>
-                  <div className="info-row"><span className="info-label">Phone</span><span>{confirmBooking.userPhone || '–'}</span></div>
+                  <div className="contents"><span className="font-semibold text-slate-500 text-sm whitespace-nowrap">First name</span><span className="text-slate-900 text-sm">{confirmBooking.userFirstName || '–'}</span></div>
+                  <div className="contents"><span className="font-semibold text-slate-500 text-sm whitespace-nowrap">Last name</span><span className="text-slate-900 text-sm">{confirmBooking.userLastName || '–'}</span></div>
+                  <div className="contents"><span className="font-semibold text-slate-500 text-sm whitespace-nowrap">Phone</span><span className="text-slate-900 text-sm">{confirmBooking.userPhone || '–'}</span></div>
                 </>
               )}
-              <div className="info-row"><span className="info-label">Date</span><span>📅 {confirmBooking.date}</span></div>
-              <div className="info-row"><span className="info-label">Time</span><span>⏰ {confirmBooking.startTime.slice(0, 5)}–{confirmBooking.endTime.slice(0, 5)}</span></div>
+              <div className="contents"><span className="font-semibold text-slate-500 text-sm whitespace-nowrap">Date</span><span className="text-slate-900 text-sm">📅 {confirmBooking.date}</span></div>
+              <div className="contents"><span className="font-semibold text-slate-500 text-sm whitespace-nowrap">Time</span><span className="text-slate-900 text-sm">⏰ {confirmBooking.startTime.slice(0, 5)}–{confirmBooking.endTime.slice(0, 5)}</span></div>
             </div>
-            <div className="confirm-actions">
-              <button className="btn-danger" onClick={confirmAdminCancel}>Cancel booking</button>
-              <button className="btn-secondary" onClick={() => setConfirmBooking(null)}>Keep it</button>
+            <div className="flex gap-3 justify-end">
+              <button className="bg-red-700 hover:bg-red-800 text-white border-none rounded-lg px-5 py-2 text-sm font-semibold cursor-pointer transition-colors" onClick={confirmAdminCancel}>Cancel booking</button>
+              <button className="bg-white hover:bg-slate-50 text-slate-700 font-semibold px-5 py-2 rounded-lg border border-slate-200 text-sm cursor-pointer transition-colors" onClick={() => setConfirmBooking(null)}>Keep it</button>
             </div>
           </div>
         </div>

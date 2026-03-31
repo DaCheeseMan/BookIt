@@ -2,7 +2,6 @@ import { useEffect, useState } from 'react';
 import { useAuth } from 'react-oidc-context';
 import { useNavigate } from 'react-router-dom';
 import { keycloakAccountApi } from '../api/client';
-import './PasskeyPromptBanner.css';
 
 const DISMISS_KEY = 'passkey_prompt_dismissed';
 const webAuthnSupported =
@@ -32,19 +31,19 @@ export function PasskeyPromptBanner() {
   }
 
   return (
-    <div className="passkey-prompt-banner" role="status">
-      <span className="passkey-prompt-icon">🔑</span>
-      <span className="passkey-prompt-text">
+    <div className="bg-indigo-50 border-b border-indigo-100 flex items-center gap-3 px-4 py-2 flex-wrap" role="status">
+      <span className="text-lg">🔑</span>
+      <span className="text-indigo-800 font-medium text-sm flex-1">
         Sign in faster with Face ID, Touch ID, or Windows Hello
       </span>
       <button
-        className="passkey-prompt-action"
+        className="bg-indigo-600 hover:bg-indigo-700 text-white font-semibold px-4 py-1.5 rounded-lg text-sm transition-colors cursor-pointer"
         onClick={() => { dismiss(); navigate('/profile#passkeys'); }}
       >
         Set up passkey
       </button>
       <button
-        className="passkey-prompt-dismiss"
+        className="text-slate-400 hover:text-slate-600 hover:bg-slate-100 rounded-md p-1 transition-colors cursor-pointer"
         onClick={dismiss}
         aria-label="Dismiss"
       >
