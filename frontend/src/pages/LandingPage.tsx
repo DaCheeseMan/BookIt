@@ -2,10 +2,8 @@ import { useAuth } from 'react-oidc-context';
 import { useNavigate } from 'react-router-dom';
 import { LandingNavbar } from '../components/landing/LandingNavbar';
 import { Hero } from '../components/landing/Hero';
-import { LogoStrip } from '../components/landing/LogoStrip';
 import { Features } from '../components/landing/Features';
 import { HowItWorks } from '../components/landing/HowItWorks';
-import { Testimonials } from '../components/landing/Testimonials';
 import { Pricing } from '../components/landing/Pricing';
 import { FAQ } from '../components/landing/FAQ';
 import { FinalCTA } from '../components/landing/FinalCTA';
@@ -35,10 +33,8 @@ export function LandingPage() {
       <LandingNavbar />
       <main id="main-content">
         <Hero onGetStarted={handleGetStarted} />
-        <LogoStrip />
         <Features />
         <HowItWorks />
-        <Testimonials />
         <Pricing onGetStarted={handleGetStarted} />
         <FAQ />
         <FinalCTA onGetStarted={handleGetStarted} />

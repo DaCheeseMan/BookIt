@@ -6,12 +6,12 @@ export function ProtectedRoute({ children }: { children: React.ReactNode }) {
   const location = useLocation();
 
   if (auth.isLoading) {
-    return <div className="loading">Laddar...</div>;
+    return <div className="flex justify-center items-center h-48 text-slate-500 text-lg">Laddar...</div>;
   }
 
   if (!auth.isAuthenticated) {
     auth.signinRedirect({ state: { returnTo: location.pathname } });
-    return <div className="loading">Omdirigerar till inloggning...</div>;
+    return <div className="flex justify-center items-center h-48 text-slate-500 text-lg">Omdirigerar till inloggning...</div>;
   }
 
   return <>{children}</>;

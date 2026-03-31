@@ -99,16 +99,16 @@ export function Hero({ onGetStarted }: HeroProps) {
             </a>
           </motion.div>
 
-          {/* Social proof strip */}
+          {/* Trust signals */}
           <motion.div
             variants={itemVariants}
             className="mt-12 flex flex-col sm:flex-row items-center justify-center gap-3 sm:gap-6 text-sm text-slate-500"
-            aria-label="Social proof"
+            aria-label="Trust signals"
           >
             {[
-              'Trusted by 500+ organisations',
               'No credit card required',
               'Setup in 5 minutes',
+              'Free plan available',
             ].map((item, i) => (
               <span key={item} className="flex items-center gap-2">
                 {i > 0 && (

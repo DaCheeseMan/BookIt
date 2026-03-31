@@ -1,7 +1,6 @@
 import { useEffect, useState } from 'react';
 import { useAuth } from 'react-oidc-context';
 import { bookingsApi, setAuthToken, type Booking } from '../api/client';
-import './MyBookingsPage.css';
 
 const TYPE_ICONS: Record<string, string> = {
   court: '🏓', tennis: '🎾', padel: '🏓', sauna: '🧖', restaurant: '🍽️',
@@ -47,39 +46,39 @@ export function MyBookingsPage() {
     }
   }
 
-  if (loading) return <div className="loading">Loading bookings…</div>;
+  if (loading) return <div className="flex justify-center items-center py-12 text-slate-500 text-lg">Loading bookings…</div>;
 
   const upcoming = bookings.filter(b => !isPast(b));
   const past = bookings.filter(b => isPast(b));
 
   return (
-    <div className="my-bookings-page">
-      <div className="page-header">
-        <h1>My bookings</h1>
-        <p>Welcome, {auth.user?.profile.preferred_username}!</p>
+    <div className="max-w-4xl mx-auto px-4 sm:px-6 lg:px-8 py-8">
+      <div className="mb-8">
+        <h1 className="text-3xl font-bold text-slate-900">My bookings</h1>
+        <p className="text-slate-500 mt-1">Welcome, {auth.user?.profile.preferred_username}!</p>
       </div>
 
-      {error && <div className="error-banner">{error}</div>}
+      {error && <div className="bg-red-50 border border-red-200 text-red-700 rounded-xl px-4 py-3 text-sm mb-6">{error}</div>}
 
       <section>
-        <h2>Upcoming ({upcoming.length})</h2>
+        <h2 className="text-xl font-semibold text-slate-800 mb-4 pb-2 border-b-2 border-indigo-100">Upcoming ({upcoming.length})</h2>
         {upcoming.length === 0 ? (
-          <p className="empty-msg">No upcoming bookings.</p>
+          <p className="text-slate-400 italic py-4">No upcoming bookings.</p>
         ) : (
-          <div className="bookings-list">
+          <div className="flex flex-col gap-3 mb-8">
             {upcoming.map(b => (
-              <div key={b.id} className="booking-item upcoming">
-                <div className="booking-icon">{getTypeIcon(b.resourceType)}</div>
-                <div className="booking-details">
-                  <strong>{b.resourceName}</strong>
-                  <span className="booking-tenant">{b.tenantName}</span>
-                  <span className="booking-time">
+              <div key={b.id} className="flex items-center justify-between bg-white rounded-2xl shadow-sm p-5 border-l-4 border-indigo-500 max-md:flex-col max-md:items-start max-md:gap-3">
+                <div className="text-3xl shrink-0">{getTypeIcon(b.resourceType)}</div>
+                <div className="flex flex-col gap-1">
+                  <strong className="text-base text-slate-900">{b.resourceName}</strong>
+                  <span className="text-sm text-indigo-600">{b.tenantName}</span>
+                  <span className="text-sm text-slate-500">
                     📅 {b.date} &nbsp;⏰ {b.startTime.slice(0, 5)}–{b.endTime.slice(0, 5)}
                   </span>
-                  <span className="resource-type-tag">{b.resourceType}</span>
+                  <span className="inline-block bg-indigo-100 text-indigo-700 rounded-full px-3 py-0.5 text-xs font-semibold capitalize mt-0.5 w-fit">{b.resourceType}</span>
                 </div>
                 <button
-                  className="cancel-btn"
+                  className="bg-white hover:bg-red-50 text-red-600 font-semibold px-4 py-2 rounded-xl border-[1.5px] border-red-300 transition-colors cursor-pointer disabled:opacity-50 disabled:cursor-not-allowed whitespace-nowrap min-h-[44px] max-md:w-full"
                   onClick={() => handleCancel(b.id)}
                   disabled={cancelling === b.id}
                 >
@@ -92,20 +91,20 @@ export function MyBookingsPage() {
       </section>
 
       {past.length > 0 && (
-        <section className="past-section">
-          <h2>History ({past.length})</h2>
-          <div className="bookings-list">
+        <section>
+          <h2 className="text-xl font-semibold text-slate-800 mb-4 pb-2 border-b-2 border-indigo-100">History ({past.length})</h2>
+          <div className="flex flex-col gap-3 mb-8">
             {past.map(b => (
-              <div key={b.id} className="booking-item past">
-                <div className="booking-icon">{getTypeIcon(b.resourceType)}</div>
-                <div className="booking-details">
-                  <strong>{b.resourceName}</strong>
-                  <span className="booking-tenant">{b.tenantName}</span>
-                  <span className="booking-time">
+              <div key={b.id} className="flex items-center justify-between bg-white rounded-2xl shadow-sm p-5 border-l-4 border-slate-300 opacity-75 max-md:flex-col max-md:items-start max-md:gap-3">
+                <div className="text-3xl shrink-0">{getTypeIcon(b.resourceType)}</div>
+                <div className="flex flex-col gap-1">
+                  <strong className="text-base text-slate-900">{b.resourceName}</strong>
+                  <span className="text-sm text-indigo-600">{b.tenantName}</span>
+                  <span className="text-sm text-slate-500">
                     📅 {b.date} &nbsp;⏰ {b.startTime.slice(0, 5)}–{b.endTime.slice(0, 5)}
                   </span>
                 </div>
-                <span className="past-label">Done</span>
+                <span className="text-sm text-slate-400 italic">Done</span>
               </div>
             ))}
           </div>

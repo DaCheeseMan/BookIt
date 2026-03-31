@@ -1,38 +1,36 @@
-* {
-  box-sizing: border-box;
-  margin: 0;
-  padding: 0;
+@layer base {
+  body {
+    background: #f5f7f5;
+    color: #222;
+  }
+
+  html {
+    scroll-behavior: smooth;
+  }
 }
 
-body {
-  font-family: 'Segoe UI', system-ui, -apple-system, sans-serif;
-  background: #f5f7f5;
-  color: #222;
-}
+@layer components {
+  .app {
+    min-height: 100vh;
+    display: flex;
+    flex-direction: column;
+  }
 
-.app {
-  min-height: 100vh;
-  display: flex;
-  flex-direction: column;
-}
+  .app main {
+    flex: 1;
+  }
 
-.app main {
-  flex: 1;
-}
+  .app-loading,
+  .app-error {
+    display: flex;
+    justify-content: center;
+    align-items: center;
+    height: 100vh;
+    font-size: 1.1rem;
+    color: #666;
+  }
 
-.app-loading,
-.app-error {
-  display: flex;
-  justify-content: center;
-  align-items: center;
-  height: 100vh;
-  font-size: 1.1rem;
-  color: #666;
-}
-
-.app-error { color: #c62828; }
-
-/* Smooth scrolling for all pages */
-html {
-  scroll-behavior: smooth;
+  .app-error {
+    color: #c62828;
+  }
 }

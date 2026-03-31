@@ -30,6 +30,14 @@ export function LandingNavbar() {
     }
   }
 
+  function handleLogin() {
+    if (auth.isAuthenticated) {
+      navigate('/tenants')
+    } else {
+      auth.signinRedirect()
+    }
+  }
+
   function handleNavClick(e: React.MouseEvent<HTMLAnchorElement>, href: string) {
     e.preventDefault()
     setMenuOpen(false)
@@ -83,7 +91,18 @@ export function LandingNavbar() {
           </ul>
 
           {/* Desktop CTA */}
-          <div className="hidden md:flex items-center">
+          <div className="hidden md:flex items-center gap-3">
+            <button
+              onClick={handleLogin}
+              className={`px-4 py-2 font-semibold rounded-xl text-sm transition-colors focus:outline-none focus-visible:ring-2 focus-visible:ring-indigo-600 focus-visible:ring-offset-2 cursor-pointer ${
+                scrolled
+                  ? 'text-indigo-600 hover:bg-indigo-50'
+                  : 'text-slate-800 hover:bg-white/60'
+              }`}
+              aria-label="Log in to your account"
+            >
+              Log In
+            </button>
             <button
               onClick={handleGetStarted}
               className="px-5 py-2 bg-amber-500 hover:bg-amber-400 active:bg-amber-600 text-white font-semibold rounded-xl text-sm transition-colors focus:outline-none focus-visible:ring-2 focus-visible:ring-amber-500 focus-visible:ring-offset-2 shadow-sm cursor-pointer"
@@ -154,7 +173,14 @@ export function LandingNavbar() {
           </ul>
         </nav>
 
-        <div className="px-4 pb-6">
+        <div className="px-4 pb-6 flex flex-col gap-3">
+          <button
+            onClick={() => { setMenuOpen(false); handleLogin() }}
+            className="w-full py-3 bg-white hover:bg-slate-50 text-indigo-600 font-semibold rounded-xl text-base transition-colors border-2 border-indigo-600 focus:outline-none focus-visible:ring-2 focus-visible:ring-indigo-600 focus-visible:ring-offset-2 cursor-pointer"
+            aria-label="Log in to your account"
+          >
+            Log In
+          </button>
           <button
             onClick={() => { setMenuOpen(false); handleGetStarted() }}
             className="w-full py-3 bg-amber-500 hover:bg-amber-400 text-white font-semibold rounded-xl text-base transition-colors focus:outline-none focus-visible:ring-2 focus-visible:ring-amber-500 focus-visible:ring-offset-2 cursor-pointer"

@@ -2,7 +2,6 @@ import { useEffect, useState } from 'react';
 import { useNavigate, useParams } from 'react-router-dom';
 import { useAuth } from 'react-oidc-context';
 import { tenantsApi, resourcesApi, type Tenant, type Resource } from '../api/client';
-import './TenantSettingsPage.css';
 
 const RESOURCE_TYPES = ['Court', 'Sauna', 'Meeting room', 'Restaurant', 'Boat', 'Car', 'Gym', 'Pool', 'Other'];
 const SLOT_DURATIONS = [
@@ -115,85 +114,85 @@ export function TenantSettingsPage() {
     }
   }
 
-  if (loading) return <div className="loading">Loading settings…</div>;
-  if (error || !tenant) return <div className="error-banner">⚠️ {error ?? 'Not found.'}</div>;
+  if (loading) return <div className="text-center py-12 text-slate-500">Loading settings…</div>;
+  if (error || !tenant) return <div className="bg-red-50 border border-red-200 text-red-700 rounded-xl px-4 py-3 text-sm mb-4">⚠️ {error ?? 'Not found.'}</div>;
 
   return (
-    <div className="tenant-settings-page">
-      <div className="settings-header">
+    <div className="max-w-4xl mx-auto px-4 sm:px-6 lg:px-8 py-8">
+      <div className="mb-6">
         <div>
-          <button className="back-btn" onClick={() => navigate(`/tenants/${slug}`)}>← Back to space</button>
-          <h1>Settings — {tenant.name}</h1>
+          <button className="bg-transparent border-none text-indigo-600 cursor-pointer text-sm p-0 mb-2 block hover:underline" onClick={() => navigate(`/tenants/${slug}`)}>← Back to space</button>
+          <h1 className="text-2xl font-bold text-slate-900">Settings — {tenant.name}</h1>
         </div>
       </div>
 
       {/* Edit tenant */}
-      <section className="settings-section">
-        <h2>Space details</h2>
-        <form className="settings-form" onSubmit={handleSaveTenant} noValidate>
-          {tenantSaved && <div className="success-banner">✅ Saved!</div>}
-          <div className="form-group">
-            <label htmlFor="edit-name">Name</label>
-            <input id="edit-name" type="text" value={editName} onChange={e => setEditName(e.target.value)} required />
+      <section className="bg-white rounded-2xl shadow-sm border border-slate-200/60 p-6 mb-5">
+        <h2 className="text-lg font-bold text-slate-800 mb-5">Space details</h2>
+        <form className="flex flex-col" onSubmit={handleSaveTenant} noValidate>
+          {tenantSaved && <div className="bg-emerald-50 border border-emerald-200 text-emerald-700 rounded-xl px-4 py-3 text-sm mb-4">✅ Saved!</div>}
+          <div className="mb-4">
+            <label className="block text-sm font-semibold text-slate-700 mb-1.5" htmlFor="edit-name">Name</label>
+            <input className="w-full px-3.5 py-2.5 rounded-xl border border-slate-300 text-sm focus:outline-none focus:ring-2 focus:ring-indigo-600 focus:border-indigo-600 transition-colors font-[inherit] bg-white" id="edit-name" type="text" value={editName} onChange={e => setEditName(e.target.value)} required />
           </div>
-          <div className="form-group">
-            <label htmlFor="edit-desc">Description</label>
-            <textarea id="edit-desc" value={editDesc} onChange={e => setEditDesc(e.target.value)} rows={3} />
+          <div className="mb-4">
+            <label className="block text-sm font-semibold text-slate-700 mb-1.5" htmlFor="edit-desc">Description</label>
+            <textarea className="w-full px-3.5 py-2.5 rounded-xl border border-slate-300 text-sm focus:outline-none focus:ring-2 focus:ring-indigo-600 focus:border-indigo-600 transition-colors font-[inherit] bg-white" id="edit-desc" value={editDesc} onChange={e => setEditDesc(e.target.value)} rows={3} />
           </div>
-          <button type="submit" className="btn btn-primary" disabled={savingTenant || !editName.trim()}>
+          <button type="submit" className="bg-indigo-600 hover:bg-indigo-700 text-white font-semibold px-5 py-2.5 rounded-xl transition-colors cursor-pointer disabled:opacity-50 disabled:cursor-not-allowed min-h-[44px]" disabled={savingTenant || !editName.trim()}>
             {savingTenant ? 'Saving…' : 'Save changes'}
           </button>
         </form>
       </section>
 
       {/* Resources */}
-      <section className="settings-section">
-        <div className="section-header-row">
-          <h2>Resources ({resources.length})</h2>
+      <section className="bg-white rounded-2xl shadow-sm border border-slate-200/60 p-6 mb-5">
+        <div className="flex items-center justify-between gap-4 mb-5 flex-wrap max-md:flex-col max-md:items-start">
+          <h2 className="text-lg font-bold text-slate-800">Resources ({resources.length})</h2>
           {!showAddResource && (
-            <button className="btn btn-primary btn-sm" onClick={() => setShowAddResource(true)}>
+            <button className="bg-indigo-600 hover:bg-indigo-700 text-white font-semibold px-3.5 py-1.5 text-sm min-h-[36px] rounded-xl transition-colors cursor-pointer disabled:opacity-50 disabled:cursor-not-allowed" onClick={() => setShowAddResource(true)}>
               + Add resource
             </button>
           )}
         </div>
 
         {showAddResource && (
-          <form className="add-resource-form" onSubmit={handleAddResource} noValidate>
-            <h3>Add resource</h3>
-            {resError && <div className="error-banner">⚠️ {resError}</div>}
-            <div className="form-row">
-              <div className="form-group">
-                <label>Name <span className="required">*</span></label>
-                <input type="text" value={resName} onChange={e => setResName(e.target.value)} placeholder="e.g. Court A" required autoFocus />
+          <form className="flex flex-col" onSubmit={handleAddResource} noValidate>
+            <h3 className="text-base font-semibold text-slate-800 mb-4 pb-3 border-b border-slate-200">Add resource</h3>
+            {resError && <div className="bg-red-50 border border-red-200 text-red-700 rounded-xl px-4 py-3 text-sm mb-4">⚠️ {resError}</div>}
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+              <div className="mb-4">
+                <label className="block text-sm font-semibold text-slate-700 mb-1.5">Name <span className="text-red-500">*</span></label>
+                <input className="w-full px-3.5 py-2.5 rounded-xl border border-slate-300 text-sm focus:outline-none focus:ring-2 focus:ring-indigo-600 focus:border-indigo-600 transition-colors font-[inherit] bg-white" type="text" value={resName} onChange={e => setResName(e.target.value)} placeholder="e.g. Court A" required autoFocus />
               </div>
-              <div className="form-group">
-                <label>Type <span className="required">*</span></label>
-                <select value={resType} onChange={e => setResType(e.target.value)}>
+              <div className="mb-4">
+                <label className="block text-sm font-semibold text-slate-700 mb-1.5">Type <span className="text-red-500">*</span></label>
+                <select className="w-full px-3.5 py-2.5 rounded-xl border border-slate-300 text-sm focus:outline-none focus:ring-2 focus:ring-indigo-600 focus:border-indigo-600 transition-colors font-[inherit] bg-white" value={resType} onChange={e => setResType(e.target.value)}>
                   {RESOURCE_TYPES.map(t => <option key={t} value={t}>{t}</option>)}
                 </select>
               </div>
             </div>
-            <div className="form-group">
-              <label>Description</label>
-              <input type="text" value={resDesc} onChange={e => setResDesc(e.target.value)} placeholder="Optional description" />
+            <div className="mb-4">
+              <label className="block text-sm font-semibold text-slate-700 mb-1.5">Description</label>
+              <input className="w-full px-3.5 py-2.5 rounded-xl border border-slate-300 text-sm focus:outline-none focus:ring-2 focus:ring-indigo-600 focus:border-indigo-600 transition-colors font-[inherit] bg-white" type="text" value={resDesc} onChange={e => setResDesc(e.target.value)} placeholder="Optional description" />
             </div>
-            <div className="form-row">
-              <div className="form-group">
-                <label>Slot duration</label>
-                <select value={resSlot} onChange={e => setResSlot(Number(e.target.value))}>
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+              <div className="mb-4">
+                <label className="block text-sm font-semibold text-slate-700 mb-1.5">Slot duration</label>
+                <select className="w-full px-3.5 py-2.5 rounded-xl border border-slate-300 text-sm focus:outline-none focus:ring-2 focus:ring-indigo-600 focus:border-indigo-600 transition-colors font-[inherit] bg-white" value={resSlot} onChange={e => setResSlot(Number(e.target.value))}>
                   {SLOT_DURATIONS.map(d => <option key={d.value} value={d.value}>{d.label}</option>)}
                 </select>
               </div>
-              <div className="form-group">
-                <label>Max advance days</label>
-                <input type="number" value={resMaxDays} onChange={e => setResMaxDays(Number(e.target.value))} min={1} max={365} />
+              <div className="mb-4">
+                <label className="block text-sm font-semibold text-slate-700 mb-1.5">Max advance days</label>
+                <input className="w-full px-3.5 py-2.5 rounded-xl border border-slate-300 text-sm focus:outline-none focus:ring-2 focus:ring-indigo-600 focus:border-indigo-600 transition-colors font-[inherit] bg-white" type="number" value={resMaxDays} onChange={e => setResMaxDays(Number(e.target.value))} min={1} max={365} />
               </div>
             </div>
-            <div className="form-actions">
-              <button type="submit" className="btn btn-primary" disabled={creatingRes || !resName.trim()}>
+            <div className="flex flex-wrap gap-3 mt-5 max-md:flex-col">
+              <button type="submit" className="bg-indigo-600 hover:bg-indigo-700 text-white font-semibold px-5 py-2.5 rounded-xl transition-colors cursor-pointer disabled:opacity-50 disabled:cursor-not-allowed min-h-[44px] max-md:w-full" disabled={creatingRes || !resName.trim()}>
                 {creatingRes ? 'Creating…' : 'Add resource'}
               </button>
-              <button type="button" className="btn btn-secondary" onClick={() => { setShowAddResource(false); setResError(null); }}>
+              <button type="button" className="bg-white hover:bg-slate-50 text-slate-700 font-semibold px-5 py-2.5 rounded-xl border border-slate-200 transition-colors cursor-pointer min-h-[44px] max-md:w-full" onClick={() => { setShowAddResource(false); setResError(null); }}>
                 Cancel
               </button>
             </div>
@@ -201,18 +200,18 @@ export function TenantSettingsPage() {
         )}
 
         {resources.length === 0 ? (
-          <p className="empty-msg">No resources yet. Add one above.</p>
+          <p className="text-sm text-slate-400">No resources yet. Add one above.</p>
         ) : (
-          <div className="resources-list">
+          <div className="flex flex-col gap-3">
             {resources.map(r => (
-              <div key={r.id} className="resource-row">
-                <div className="resource-row-info">
-                  <strong>{r.name}</strong>
-                  <span className="resource-type-tag">{r.resourceType}</span>
-                  <span className="resource-meta-tag">{r.slotDurationMinutes}min · {r.maxAdvanceDays}d advance</span>
+              <div key={r.id} className="flex items-center justify-between gap-4 px-4 py-3 bg-slate-50 border border-slate-200 rounded-xl flex-wrap max-md:flex-col max-md:items-start">
+                <div className="flex items-center gap-2.5 flex-wrap min-w-0">
+                  <strong className="text-sm font-semibold text-indigo-600">{r.name}</strong>
+                  <span className="bg-indigo-100 text-indigo-700 rounded-full px-3 py-0.5 text-xs font-semibold">{r.resourceType}</span>
+                  <span className="text-xs text-slate-400">{r.slotDurationMinutes}min · {r.maxAdvanceDays}d advance</span>
                 </div>
                 <button
-                  className="btn btn-danger btn-sm"
+                  className="bg-red-50 hover:bg-red-100 text-red-700 font-semibold px-3.5 py-1.5 text-sm min-h-[36px] rounded-xl border border-red-200 transition-colors cursor-pointer max-md:w-full"
                   onClick={() => handleDeleteResource(r.id)}
                 >
                   Delete
