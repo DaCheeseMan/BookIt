@@ -348,7 +348,8 @@ tenantsApi.MapGet("/{tenantId:int}/members", async (int tenantId, ClaimsPrincipa
 {
     var tenant = await db.Tenants.FindAsync(tenantId);
     if (tenant is null) return Results.NotFound();
-    var userId = user.FindFirstValue(ClaimTypes.NameIdentifier) ?? user.FindFirstValue("sub")!;
+    var userId = user.FindFirstValue(ClaimTypes.NameIdentifier) ?? user.FindFirstValue("sub");
+    if (userId is null) return Results.Unauthorized();
     if (tenant.OwnerId != userId && !IsAdmin(user))
     {
         var callerMembership = await db.Memberships.FirstOrDefaultAsync(m => m.TenantId == tenantId && m.UserId == userId);
@@ -392,7 +393,8 @@ tenantsApi.MapPost("/{tenantId:int}/members", async (int tenantId, AddMemberRequ
 {
     var tenant = await db.Tenants.FindAsync(tenantId);
     if (tenant is null) return Results.NotFound();
-    var userId = user.FindFirstValue(ClaimTypes.NameIdentifier) ?? user.FindFirstValue("sub")!;
+    var userId = user.FindFirstValue(ClaimTypes.NameIdentifier) ?? user.FindFirstValue("sub");
+    if (userId is null) return Results.Unauthorized();
     if (tenant.OwnerId != userId && !IsAdmin(user)) return Results.Forbid();
 
     // Find user by email in Keycloak if userId not provided
@@ -445,7 +447,8 @@ tenantsApi.MapDelete("/{tenantId:int}/members/{targetUserId}", async (int tenant
 {
     var tenant = await db.Tenants.FindAsync(tenantId);
     if (tenant is null) return Results.NotFound();
-    var userId = user.FindFirstValue(ClaimTypes.NameIdentifier) ?? user.FindFirstValue("sub")!;
+    var userId = user.FindFirstValue(ClaimTypes.NameIdentifier) ?? user.FindFirstValue("sub");
+    if (userId is null) return Results.Unauthorized();
     if (userId != targetUserId && tenant.OwnerId != userId && !IsAdmin(user)) return Results.Forbid();
 
     var membership = await db.Memberships.FirstOrDefaultAsync(m => m.TenantId == tenantId && m.UserId == targetUserId);
@@ -471,7 +474,8 @@ tenantsApi.MapPost("/{tenantId:int}/join", async (int tenantId, ClaimsPrincipal 
     if (tenant is null) return Results.NotFound();
     if (tenant.Visibility == TenantVisibility.Private) return Results.Forbid();
 
-    var userId = user.FindFirstValue(ClaimTypes.NameIdentifier) ?? user.FindFirstValue("sub")!;
+    var userId = user.FindFirstValue(ClaimTypes.NameIdentifier) ?? user.FindFirstValue("sub");
+    if (userId is null) return Results.Unauthorized();
     if (tenant.OwnerId == userId) return Results.BadRequest("You are already the owner of this space.");
 
     var existing = await db.Memberships.AnyAsync(m => m.TenantId == tenantId && m.UserId == userId);
@@ -495,7 +499,8 @@ tenantsApi.MapDelete("/{tenantId:int}/leave", async (int tenantId, ClaimsPrincip
 {
     var tenant = await db.Tenants.FindAsync(tenantId);
     if (tenant is null) return Results.NotFound();
-    var userId = user.FindFirstValue(ClaimTypes.NameIdentifier) ?? user.FindFirstValue("sub")!;
+    var userId = user.FindFirstValue(ClaimTypes.NameIdentifier) ?? user.FindFirstValue("sub");
+    if (userId is null) return Results.Unauthorized();
     if (tenant.OwnerId == userId) return Results.BadRequest("Owners cannot leave their own space. Transfer ownership or delete it.");
 
     var membership = await db.Memberships.FirstOrDefaultAsync(m => m.TenantId == tenantId && m.UserId == userId);
@@ -543,7 +548,8 @@ bookingsApi.MapPost("/", async (CreateBookingRequest req, ClaimsPrincipal user, 
     if (resource is null || !resource.IsActive)
         return Results.BadRequest("Resource not found or inactive.");
 
-    var userId = user.FindFirstValue(ClaimTypes.NameIdentifier) ?? user.FindFirstValue("sub")!;
+    var userId = user.FindFirstValue(ClaimTypes.NameIdentifier) ?? user.FindFirstValue("sub");
+    if (userId is null) return Results.Unauthorized();
 
     // Private space access check
     if (resource.Tenant.Visibility == TenantVisibility.Private && !IsAdmin(user) && resource.Tenant.OwnerId != userId)
@@ -914,7 +920,25 @@ static async Task CreateKeycloakGroupAsync(IConfiguration config, IHttpClientFac
         if (createRes.IsSuccessStatusCode || createRes.StatusCode == System.Net.HttpStatusCode.Conflict)
         {
             var newLocation = createRes.Headers.Location?.ToString();
-            parentId = newLocation?.Split('/').Last() ?? parentId;
+            var newId = newLocation?.Split('/').LastOrDefault();
+            if (!string.IsNullOrEmpty(newId))
+            {
+                parentId = newId;
+            }
+            else
+            {
+                // Location header missing — re-fetch to find the group
+                var refetchUrl = parentId is null
+                    ? $"{adminUrl}/admin/realms/{realm}/groups?search={Uri.EscapeDataString(part)}&exact=true&top=true"
+                    : $"{adminUrl}/admin/realms/{realm}/groups/{parentId}/children?search={Uri.EscapeDataString(part)}";
+                var refetchReq = new HttpRequestMessage(HttpMethod.Get, refetchUrl);
+                refetchReq.Headers.Authorization = new AuthenticationHeaderValue("Bearer", adminToken);
+                var refetchRes = await client.SendAsync(refetchReq);
+                if (!refetchRes.IsSuccessStatusCode) return;
+                var refetched = await refetchRes.Content.ReadFromJsonAsync<List<KeycloakGroupRepresentation>>();
+                parentId = refetched?.FirstOrDefault(g => g.Name == part)?.Id;
+                if (parentId is null) return;
+            }
         }
     }
 }

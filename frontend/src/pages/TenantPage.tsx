@@ -29,7 +29,6 @@ export function TenantPage() {
   const [error, setError] = useState<string | null>(null);
   const [forbidden, setForbidden] = useState(false);
   const [isMember, setIsMember] = useState(false);
-  const [joiningId, setJoiningId] = useState<number | null>(null);
 
   const myUserId = auth.user?.profile.sub;
   const isOwner = tenant?.ownerId === myUserId;
@@ -57,22 +56,6 @@ export function TenantPage() {
       .finally(() => setLoading(false));
   }, [slug]);
 
-  async function handleJoin() {
-    if (!tenant) return;
-    setJoiningId(tenant.id);
-    try {
-      await membersApi.join(tenant.id);
-      setIsMember(true);
-      setForbidden(false);
-      const res = await resourcesApi.getAll(tenant.id);
-      setResources(res);
-    } catch {
-      setError('Could not join this space.');
-    } finally {
-      setJoiningId(null);
-    }
-  }
-
   async function handleLeave() {
     if (!tenant || !confirm('Leave this space?')) return;
     try {
@@ -90,27 +73,15 @@ export function TenantPage() {
     return (
       <div className="max-w-xl mx-auto px-4 sm:px-6 py-16 text-center">
         <div className="text-5xl mb-4">🔒</div>
-        <h2 className="text-2xl font-bold text-slate-900 mb-2">{tenant.name}</h2>
-        <p className="text-slate-500 mb-6">This is a private space. You need to be a member to view and book resources.</p>
-        {tenant.visibility === 'Public' ? (
-          <button
-            className="bg-indigo-600 hover:bg-indigo-700 text-white font-semibold px-6 py-3 rounded-xl transition-colors cursor-pointer min-h-[44px] disabled:opacity-50"
-            onClick={handleJoin}
-            disabled={joiningId !== null}
-          >
-            {joiningId !== null ? 'Joining…' : 'Join this space'}
-          </button>
-        ) : (
-          <div>
-            <p className="text-slate-400 text-sm mt-2">Contact the space owner to request access.</p>
-            <button
-              className="mt-4 text-indigo-600 hover:underline text-sm font-semibold"
-              onClick={() => navigate('/tenants')}
-            >
-              ← Back to spaces
-            </button>
-          </div>
-        )}
+        <h2 className="text-2xl font-bold text-slate-900 mb-2">{tenant?.name ?? 'Private space'}</h2>
+        <p className="text-slate-500 mb-4">This is a private space. You need to be a member to view and book resources.</p>
+        <p className="text-slate-400 text-sm mb-6">Contact the space owner to request access.</p>
+        <button
+          className="text-indigo-600 hover:underline text-sm font-semibold"
+          onClick={() => navigate('/tenants')}
+        >
+          ← Back to spaces
+        </button>
       </div>
     );
   }

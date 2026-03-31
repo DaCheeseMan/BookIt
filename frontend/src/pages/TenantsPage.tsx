@@ -1,7 +1,7 @@
 import { useEffect, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { useAuth } from 'react-oidc-context';
-import { tenantsApi, membersApi, type Tenant } from '../api/client';
+import { tenantsApi, type Tenant } from '../api/client';
 
 function toSlug(name: string): string {
   return name
@@ -20,7 +20,6 @@ export function TenantsPage() {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [showForm, setShowForm] = useState(false);
-  const [joiningId, setJoiningId] = useState<number | null>(null);
 
   const [name, setName] = useState('');
   const [slug, setSlug] = useState('');
@@ -59,18 +58,6 @@ export function TenantsPage() {
       const msg = typeof data === 'string' ? data : data?.title;
       setFormError(msg ?? 'Could not create space.');
       setCreating(false);
-    }
-  }
-
-  async function handleJoin(tenant: Tenant, e: React.MouseEvent) {
-    e.stopPropagation();
-    setJoiningId(tenant.id);
-    try {
-      await membersApi.join(tenant.id);
-      navigate(`/tenants/${tenant.slug}`);
-    } catch {
-      setError('Could not join this space.');
-      setJoiningId(null);
     }
   }
 
@@ -199,13 +186,9 @@ export function TenantsPage() {
                   </div>
                 </div>
                 {isPrivate && !isOwner && (
-                  <button
-                    className="w-full bg-indigo-600 hover:bg-indigo-700 text-white font-semibold px-4 py-2 rounded-xl text-sm transition-colors cursor-pointer disabled:opacity-50 min-h-[40px]"
-                    disabled={joiningId === t.id}
-                    onClick={e => handleJoin(t, e)}
-                  >
-                    {joiningId === t.id ? 'Joining…' : 'Request to join'}
-                  </button>
+                  <div className="text-xs text-slate-400 flex items-center gap-1">
+                    🔒 <span>Members only — contact the owner for access</span>
+                  </div>
                 )}
               </div>
             );
