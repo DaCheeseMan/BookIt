@@ -1,3 +1,4 @@
+import { useEffect } from 'react';
 import { useAuth } from 'react-oidc-context';
 import { useNavigate } from 'react-router-dom';
 import { LandingNavbar } from '../components/landing/LandingNavbar';
@@ -12,6 +13,13 @@ import { Footer } from '../components/landing/Footer';
 export function LandingPage() {
   const auth = useAuth();
   const navigate = useNavigate();
+
+  // Redirect authenticated users straight to the dashboard
+  useEffect(() => {
+    if (auth.isAuthenticated) {
+      navigate('/tenants', { replace: true });
+    }
+  }, [auth.isAuthenticated, navigate]);
 
   function handleGetStarted() {
     if (auth.isAuthenticated) {

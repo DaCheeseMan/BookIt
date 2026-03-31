@@ -25,6 +25,10 @@ import App from './App.tsx'
     response_type: 'code',
     scope: 'openid profile email',
     automaticSilentRenew: true,
+    onSigninCallback: () => {
+      // Remove OIDC callback params (?code=...&state=...) from the URL
+      window.history.replaceState({}, document.title, window.location.pathname)
+    },
   }
 
   createRoot(document.getElementById('root')!).render(
