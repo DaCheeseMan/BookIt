@@ -599,8 +599,7 @@ tenantsApi.MapPost("/{slug}/invitations", async (string slug, CreateInvitationsR
         var existing = await db.Invitations.Where(i => i.TenantId == tenant.Id && i.Email == email && i.Status == InvitationStatus.Pending).ToListAsync();
         foreach (var old in existing) old.Status = InvitationStatus.Revoked;
 
-        var token = Convert.ToBase64String(System.Security.Cryptography.RandomNumberGenerator.GetBytes(32))
-            .Replace("+", "-").Replace("/", "_").TrimEnd('=');
+        var token = GenerateSecureToken();
 
         var invitation = new Invitation
         {
@@ -1231,6 +1230,10 @@ static async Task<string?> FindKeycloakGroupIdAsync(HttpClient client, string ad
     }
     return groupId;
 }
+
+static string GenerateSecureToken()
+    => Convert.ToBase64String(System.Security.Cryptography.RandomNumberGenerator.GetBytes(32))
+        .Replace("+", "-").Replace("/", "_").TrimEnd('=');
 
 // Request/Response records
 record CreateTenantRequest(string Name, string Slug, string? Description, string? Visibility);

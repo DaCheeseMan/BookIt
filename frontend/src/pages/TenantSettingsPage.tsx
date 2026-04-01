@@ -61,6 +61,7 @@ export function TenantSettingsPage() {
   const [inviteLinkSuccess, setInviteLinkSuccess] = useState(false);
   const [revokingInviteId, setRevokingInviteId] = useState<string | null>(null);
   const [copiedTokenId, setCopiedTokenId] = useState<string | null>(null);
+  const [inviteListError, setInviteListError] = useState<string | null>(null);
 
   const myUserId = auth.user?.profile.sub;
 
@@ -78,7 +79,7 @@ export function TenantSettingsPage() {
       ]);
       setResources(res);
       setMembers(mems);
-      invitationsApi.getAll(t.slug).then(setInvites).catch(() => {});
+      invitationsApi.getAll(t.slug).then(setInvites).catch(() => setInviteListError('Could not load invitations.'));
     } catch {
       setError('Space not found or access denied.');
     } finally {
@@ -196,15 +197,29 @@ export function TenantSettingsPage() {
   async function handleSendInviteLink(e: React.FormEvent) {
     e.preventDefault();
     if (!tenant || !inviteLinkEmail.trim()) return;
+
+    // Validate each email address
+    const emails = inviteLinkEmail.split(',').map(s => s.trim()).filter(Boolean);
+    const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+    const invalid = emails.filter(em => !emailRegex.test(em));
+    if (invalid.length > 0) {
+      setInviteLinkError(`Invalid email address${invalid.length > 1 ? 'es' : ''}: ${invalid.join(', ')}`);
+      return;
+    }
+
     setSendingInviteLink(true);
     setInviteLinkError(null);
     setInviteLinkSuccess(false);
     try {
-      const emails = inviteLinkEmail.split(',').map(s => s.trim()).filter(Boolean);
-      await invitationsApi.create(tenant.slug, emails, inviteLinkRole);
+      const newInvites = await invitationsApi.create(tenant.slug, emails, inviteLinkRole);
       setInviteLinkEmail('');
       setInviteLinkSuccess(true);
       setTimeout(() => setInviteLinkSuccess(false), 4000);
+      // Update local state with newly created invites; refresh full list for accuracy
+      setInvites(prev => {
+        const updatedIds = new Set(newInvites.map(i => i.id));
+        return [...newInvites, ...prev.filter(i => !updatedIds.has(i.id))];
+      });
       invitationsApi.getAll(tenant.slug).then(setInvites).catch(() => {});
     } catch {
       setInviteLinkError('Could not create invite link.');
@@ -584,6 +599,7 @@ export function TenantSettingsPage() {
           </div>
         </form>
 
+        {inviteListError && <div className="bg-red-50 border border-red-200 text-red-700 rounded-xl px-4 py-3 text-sm mb-3">⚠️ {inviteListError}</div>}
         {invites.length > 0 && (
           <div className="flex flex-col gap-2">
             {invites.map(inv => {
