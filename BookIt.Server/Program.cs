@@ -40,8 +40,10 @@ builder.Services.AddProblemDetails();
 builder.Services.AddOpenApi();
 
 builder.Services.ConfigureHttpJsonOptions(o =>
-    o.SerializerOptions.ReferenceHandler =
-        System.Text.Json.Serialization.ReferenceHandler.IgnoreCycles);
+{
+    o.SerializerOptions.ReferenceHandler = System.Text.Json.Serialization.ReferenceHandler.IgnoreCycles;
+    o.SerializerOptions.Converters.Add(new System.Text.Json.Serialization.JsonStringEnumConverter());
+});
 
 builder.Services.AddCors(options =>
 {
@@ -136,7 +138,7 @@ var tenantsApi = app.MapGroup("/api/tenants");
 // List all tenants (public)
 tenantsApi.MapGet("/", async (AppDbContext db) =>
     await db.Tenants
-        .Select(t => new { t.Id, t.Name, t.Slug, t.Description, t.OwnerId, t.CreatedAt })
+        .Select(t => new { t.Id, t.Name, t.Slug, t.Description, t.OwnerId, t.Visibility, t.CreatedAt })
         .ToListAsync());
 
 // Get single tenant (public)
@@ -145,11 +147,11 @@ tenantsApi.MapGet("/{idOrSlug}", async (string idOrSlug, AppDbContext db) =>
     Tenant? tenant = int.TryParse(idOrSlug, out var id)
         ? await db.Tenants.FindAsync(id)
         : await db.Tenants.FirstOrDefaultAsync(t => t.Slug == idOrSlug);
-    return tenant is null ? Results.NotFound() : Results.Ok(new { tenant.Id, tenant.Name, tenant.Slug, tenant.Description, tenant.OwnerId, tenant.CreatedAt });
+    return tenant is null ? Results.NotFound() : Results.Ok(new { tenant.Id, tenant.Name, tenant.Slug, tenant.Description, tenant.OwnerId, tenant.Visibility, tenant.CreatedAt });
 });
 
 // Create tenant (authenticated — caller becomes owner)
-tenantsApi.MapPost("/", async (CreateTenantRequest req, ClaimsPrincipal user, AppDbContext db) =>
+tenantsApi.MapPost("/", async (CreateTenantRequest req, ClaimsPrincipal user, AppDbContext db, IConfiguration config, IWebHostEnvironment env, IHttpClientFactory httpClientFactory) =>
 {
     if (user.Identity?.IsAuthenticated != true) return Results.Unauthorized();
 
@@ -162,16 +164,27 @@ tenantsApi.MapPost("/", async (CreateTenantRequest req, ClaimsPrincipal user, Ap
     if (await db.Tenants.AnyAsync(t => t.Slug == slug))
         return Results.Conflict("A tenant with that slug already exists.");
 
+    var visibility = req.Visibility == "Private" ? TenantVisibility.Private : TenantVisibility.Public;
+
     var tenant = new Tenant
     {
         Name = req.Name.Trim(),
         Slug = slug,
         Description = req.Description?.Trim() ?? string.Empty,
         OwnerId = ownerId,
+        Visibility = visibility,
     };
     db.Tenants.Add(tenant);
     await db.SaveChangesAsync();
-    return Results.Created($"/api/tenants/{tenant.Slug}", new { tenant.Id, tenant.Name, tenant.Slug, tenant.Description, tenant.OwnerId, tenant.CreatedAt });
+
+    // Create a Keycloak group for this space (best-effort)
+    _ = Task.Run(async () =>
+    {
+        try { await CreateKeycloakGroupAsync(config, httpClientFactory, env.IsDevelopment(), $"spaces/{slug}"); }
+        catch { /* group sync is best-effort */ }
+    });
+
+    return Results.Created($"/api/tenants/{tenant.Slug}", new { tenant.Id, tenant.Name, tenant.Slug, tenant.Description, tenant.OwnerId, tenant.Visibility, tenant.CreatedAt });
 }).RequireAuthorization();
 
 // Update tenant (tenant owner or global admin)
@@ -184,8 +197,10 @@ tenantsApi.MapPut("/{id:int}", async (int id, UpdateTenantRequest req, ClaimsPri
 
     tenant.Name = req.Name?.Trim() ?? tenant.Name;
     tenant.Description = req.Description?.Trim() ?? tenant.Description;
+    if (req.Visibility is not null)
+        tenant.Visibility = req.Visibility == "Private" ? TenantVisibility.Private : TenantVisibility.Public;
     await db.SaveChangesAsync();
-    return Results.Ok(new { tenant.Id, tenant.Name, tenant.Slug, tenant.Description });
+    return Results.Ok(new { tenant.Id, tenant.Name, tenant.Slug, tenant.Description, tenant.Visibility });
 }).RequireAuthorization();
 
 // Delete tenant (tenant owner or global admin)
@@ -202,25 +217,59 @@ tenantsApi.MapDelete("/{id:int}", async (int id, ClaimsPrincipal user, AppDbCont
 
 // --- Resources API (under tenant) ---
 
-// List resources for a tenant (public)
-tenantsApi.MapGet("/{tenantId:int}/resources", async (int tenantId, AppDbContext db) =>
-    await db.Resources
+// Helper: check if a user has access to a tenant (owner, global admin, or member of private space)
+static async Task<bool> HasTenantAccess(Tenant tenant, string userId, bool isAdmin, AppDbContext db)
+{
+    if (isAdmin || tenant.OwnerId == userId) return true;
+    if (tenant.Visibility == TenantVisibility.Public) return true;
+    return await db.Memberships.AnyAsync(m => m.TenantId == tenant.Id && m.UserId == userId);
+}
+
+// List resources for a tenant (access-controlled)
+tenantsApi.MapGet("/{tenantId:int}/resources", async (int tenantId, ClaimsPrincipal user, AppDbContext db) =>
+{
+    var tenant = await db.Tenants.FindAsync(tenantId);
+    if (tenant is null) return Results.NotFound();
+    if (tenant.Visibility == TenantVisibility.Private)
+    {
+        if (user.Identity?.IsAuthenticated != true) return Results.Forbid();
+        var userId = user.FindFirstValue(ClaimTypes.NameIdentifier) ?? user.FindFirstValue("sub")!;
+        if (!await HasTenantAccess(tenant, userId, IsAdmin(user), db)) return Results.Forbid();
+    }
+    return Results.Ok(await db.Resources
         .Where(r => r.TenantId == tenantId && r.IsActive)
         .Select(r => new { r.Id, r.TenantId, r.Name, r.Description, r.ResourceType, r.SlotDurationMinutes, r.MaxAdvanceDays, r.IsActive })
         .ToListAsync());
+});
 
-// Get single resource (public)
-tenantsApi.MapGet("/{tenantId:int}/resources/{resourceId:int}", async (int tenantId, int resourceId, AppDbContext db) =>
+// Get single resource (access-controlled)
+tenantsApi.MapGet("/{tenantId:int}/resources/{resourceId:int}", async (int tenantId, int resourceId, ClaimsPrincipal user, AppDbContext db) =>
 {
+    var tenant = await db.Tenants.FindAsync(tenantId);
+    if (tenant is null) return Results.NotFound();
+    if (tenant.Visibility == TenantVisibility.Private)
+    {
+        if (user.Identity?.IsAuthenticated != true) return Results.Forbid();
+        var userId = user.FindFirstValue(ClaimTypes.NameIdentifier) ?? user.FindFirstValue("sub")!;
+        if (!await HasTenantAccess(tenant, userId, IsAdmin(user), db)) return Results.Forbid();
+    }
     var resource = await db.Resources.FirstOrDefaultAsync(r => r.Id == resourceId && r.TenantId == tenantId);
     return resource is null ? Results.NotFound() : Results.Ok(new { resource.Id, resource.TenantId, resource.Name, resource.Description, resource.ResourceType, resource.SlotDurationMinutes, resource.MaxAdvanceDays, resource.IsActive });
 });
 
-// Get bookings for a resource in a date range (public, but user details hidden for anonymous)
+// Get bookings for a resource in a date range (access-controlled)
 tenantsApi.MapGet("/{tenantId:int}/resources/{resourceId:int}/bookings",
     async (int tenantId, int resourceId, DateOnly from, DateOnly to, ClaimsPrincipal user, AppDbContext db) =>
 {
+    var tenant = await db.Tenants.FindAsync(tenantId);
+    if (tenant is null) return Results.NotFound();
     var isAuthenticated = user.Identity?.IsAuthenticated == true;
+    if (tenant.Visibility == TenantVisibility.Private)
+    {
+        if (!isAuthenticated) return Results.Forbid();
+        var checkUserId = user.FindFirstValue(ClaimTypes.NameIdentifier) ?? user.FindFirstValue("sub")!;
+        if (!await HasTenantAccess(tenant, checkUserId, IsAdmin(user), db)) return Results.Forbid();
+    }
     var bookings = await db.Bookings
         .Where(b => b.ResourceId == resourceId && b.TenantId == tenantId && b.Date >= from && b.Date <= to)
         .OrderBy(b => b.Date).ThenBy(b => b.StartTime)
@@ -294,6 +343,235 @@ tenantsApi.MapDelete("/{tenantId:int}/resources/{resourceId:int}", async (int te
     return Results.NoContent();
 }).RequireAuthorization();
 
+// --- Membership API ---
+
+// Get members of a tenant (owner, global admin, or admin member)
+tenantsApi.MapGet("/{tenantId:int}/members", async (int tenantId, ClaimsPrincipal user, AppDbContext db, IConfiguration config, IWebHostEnvironment env, IHttpClientFactory httpClientFactory) =>
+{
+    var tenant = await db.Tenants.FindAsync(tenantId);
+    if (tenant is null) return Results.NotFound();
+    var userId = user.FindFirstValue(ClaimTypes.NameIdentifier) ?? user.FindFirstValue("sub");
+    if (userId is null) return Results.Unauthorized();
+    if (tenant.OwnerId != userId && !IsAdmin(user))
+    {
+        var callerMembership = await db.Memberships.FirstOrDefaultAsync(m => m.TenantId == tenantId && m.UserId == userId);
+        if (callerMembership?.Role != TenantMemberRole.Admin) return Results.Forbid();
+    }
+    var memberships = await db.Memberships.Where(m => m.TenantId == tenantId).ToListAsync();
+
+    // Enrich with Keycloak user info (best-effort)
+    var adminToken = await GetKeycloakAdminTokenAsync(config, httpClientFactory, env.IsDevelopment());
+    var adminUrl = GetKeycloakAdminUrl(config, env.IsDevelopment());
+    var realm = config["Keycloak:RealmName"] ?? "bookit";
+    var client = httpClientFactory.CreateClient("keycloak-account");
+
+    var enriched = await Task.WhenAll(memberships.Select(async m =>
+    {
+        string? firstName = null, lastName = null, email = null;
+        if (adminToken is not null)
+        {
+            try
+            {
+                var req = new HttpRequestMessage(HttpMethod.Get, $"{adminUrl}/admin/realms/{realm}/users/{m.UserId}");
+                req.Headers.Authorization = new AuthenticationHeaderValue("Bearer", adminToken);
+                var res = await client.SendAsync(req);
+                if (res.IsSuccessStatusCode)
+                {
+                    var kcUser = await res.Content.ReadFromJsonAsync<KeycloakUserRepresentation>();
+                    firstName = kcUser?.FirstName;
+                    lastName = kcUser?.LastName;
+                    email = kcUser?.Email;
+                }
+            }
+            catch { }
+        }
+        return new { m.UserId, m.Role, m.JoinedAt, firstName, lastName, email };
+    }));
+    return Results.Ok(enriched);
+}).RequireAuthorization();
+
+// Search for a Keycloak user by email (check before adding as member)
+tenantsApi.MapGet("/{tenantId:int}/members/search", async (int tenantId, string email, ClaimsPrincipal user, AppDbContext db, IConfiguration config, IWebHostEnvironment env, IHttpClientFactory httpClientFactory) =>
+{
+    var tenant = await db.Tenants.FindAsync(tenantId);
+    if (tenant is null) return Results.NotFound();
+    var userId = user.FindFirstValue(ClaimTypes.NameIdentifier) ?? user.FindFirstValue("sub");
+    if (userId is null) return Results.Unauthorized();
+    if (tenant.OwnerId != userId && !IsAdmin(user)) return Results.Forbid();
+
+    var adminToken = await GetKeycloakAdminTokenAsync(config, httpClientFactory, env.IsDevelopment());
+    if (adminToken is null) return Results.StatusCode(502);
+    var adminUrl = GetKeycloakAdminUrl(config, env.IsDevelopment());
+    var realm = config["Keycloak:RealmName"] ?? "bookit";
+    var client = httpClientFactory.CreateClient("keycloak-account");
+
+    var searchReq = new HttpRequestMessage(HttpMethod.Get, $"{adminUrl}/admin/realms/{realm}/users?email={Uri.EscapeDataString(email)}&exact=true");
+    searchReq.Headers.Authorization = new AuthenticationHeaderValue("Bearer", adminToken);
+    var searchRes = await client.SendAsync(searchReq);
+    if (!searchRes.IsSuccessStatusCode) return Results.StatusCode((int)searchRes.StatusCode);
+    var users = await searchRes.Content.ReadFromJsonAsync<List<KeycloakUserRepresentation>>();
+    var found = users?.FirstOrDefault();
+    if (found is null) return Results.NotFound();
+    return Results.Ok(new { found.Id, found.FirstName, found.LastName, found.Email });
+}).RequireAuthorization();
+
+// Add a member to a tenant (owner or global admin)
+tenantsApi.MapPost("/{tenantId:int}/members", async (int tenantId, AddMemberRequest req, ClaimsPrincipal user, AppDbContext db, IConfiguration config, IWebHostEnvironment env, IHttpClientFactory httpClientFactory) =>
+{
+    var tenant = await db.Tenants.FindAsync(tenantId);
+    if (tenant is null) return Results.NotFound();
+    var userId = user.FindFirstValue(ClaimTypes.NameIdentifier) ?? user.FindFirstValue("sub");
+    if (userId is null) return Results.Unauthorized();
+    if (tenant.OwnerId != userId && !IsAdmin(user)) return Results.Forbid();
+
+    // Find user by email in Keycloak if userId not provided
+    var targetUserId = req.UserId;
+    if (string.IsNullOrWhiteSpace(targetUserId) && !string.IsNullOrWhiteSpace(req.Email))
+    {
+        var adminToken = await GetKeycloakAdminTokenAsync(config, httpClientFactory, env.IsDevelopment());
+        if (adminToken is null) return Results.StatusCode(502);
+        var adminUrl = GetKeycloakAdminUrl(config, env.IsDevelopment());
+        var realm = config["Keycloak:RealmName"] ?? "bookit";
+        var client = httpClientFactory.CreateClient("keycloak-account");
+        var searchReq = new HttpRequestMessage(HttpMethod.Get, $"{adminUrl}/admin/realms/{realm}/users?email={Uri.EscapeDataString(req.Email)}&exact=true");
+        searchReq.Headers.Authorization = new AuthenticationHeaderValue("Bearer", adminToken);
+        var searchRes = await client.SendAsync(searchReq);
+        if (!searchRes.IsSuccessStatusCode) return Results.StatusCode((int)searchRes.StatusCode);
+        var users = await searchRes.Content.ReadFromJsonAsync<List<KeycloakUserRepresentation>>();
+        targetUserId = users?.FirstOrDefault()?.Id;
+
+        if (string.IsNullOrWhiteSpace(targetUserId))
+        {
+            // User not found — create in Keycloak if requested
+            if (!req.Create || string.IsNullOrWhiteSpace(req.FirstName) || string.IsNullOrWhiteSpace(req.LastName))
+                return Results.NotFound("No user found with that email address.");
+
+            var newUser = new KeycloakUserRepresentation
+            {
+                Username = req.Email, Email = req.Email,
+                FirstName = req.FirstName.Trim(), LastName = req.LastName.Trim(),
+                Enabled = true,
+            };
+            var createReq = new HttpRequestMessage(HttpMethod.Post, $"{adminUrl}/admin/realms/{realm}/users");
+            createReq.Headers.Authorization = new AuthenticationHeaderValue("Bearer", adminToken);
+            createReq.Content = JsonContent.Create(newUser);
+            var createRes = await client.SendAsync(createReq);
+            if (!createRes.IsSuccessStatusCode)
+                return Results.Problem("Could not create user in Keycloak.", statusCode: (int)createRes.StatusCode);
+
+            targetUserId = createRes.Headers.Location?.Segments.Last();
+            if (string.IsNullOrWhiteSpace(targetUserId)) return Results.StatusCode(500);
+
+            // Send invite email so the new user can set their password
+            var actionsReq = new HttpRequestMessage(HttpMethod.Put, $"{adminUrl}/admin/realms/{realm}/users/{targetUserId}/execute-actions-email");
+            actionsReq.Headers.Authorization = new AuthenticationHeaderValue("Bearer", adminToken);
+            actionsReq.Content = JsonContent.Create(new[] { "VERIFY_EMAIL", "UPDATE_PASSWORD" });
+            await client.SendAsync(actionsReq);
+        }
+    }
+
+    if (string.IsNullOrWhiteSpace(targetUserId))
+        return Results.BadRequest("Either userId or email is required.");
+
+    // Don't add the owner as a member
+    if (targetUserId == tenant.OwnerId)
+        return Results.BadRequest("The space owner cannot be added as a member.");
+
+    var existing = await db.Memberships.FirstOrDefaultAsync(m => m.TenantId == tenantId && m.UserId == targetUserId);
+    if (existing is not null)
+        return Results.Conflict("User is already a member of this space.");
+
+    var role = req.Role == "Admin" ? TenantMemberRole.Admin : TenantMemberRole.Member;
+    var membership = new Membership { TenantId = tenantId, UserId = targetUserId, Role = role };
+    db.Memberships.Add(membership);
+    await db.SaveChangesAsync();
+
+    // Sync to Keycloak group (best-effort)
+    _ = Task.Run(async () =>
+    {
+        try { await AddUserToKeycloakGroupAsync(config, httpClientFactory, env.IsDevelopment(), targetUserId, $"spaces/{tenant.Slug}"); }
+        catch { }
+    });
+
+    return Results.Created($"/api/tenants/{tenantId}/members/{targetUserId}", new { membership.UserId, membership.Role, membership.JoinedAt });
+}).RequireAuthorization();
+
+// Remove a member from a tenant (owner, global admin, or the member themselves)
+tenantsApi.MapDelete("/{tenantId:int}/members/{targetUserId}", async (int tenantId, string targetUserId, ClaimsPrincipal user, AppDbContext db, IConfiguration config, IWebHostEnvironment env, IHttpClientFactory httpClientFactory) =>
+{
+    var tenant = await db.Tenants.FindAsync(tenantId);
+    if (tenant is null) return Results.NotFound();
+    var userId = user.FindFirstValue(ClaimTypes.NameIdentifier) ?? user.FindFirstValue("sub");
+    if (userId is null) return Results.Unauthorized();
+    if (userId != targetUserId && tenant.OwnerId != userId && !IsAdmin(user)) return Results.Forbid();
+
+    var membership = await db.Memberships.FirstOrDefaultAsync(m => m.TenantId == tenantId && m.UserId == targetUserId);
+    if (membership is null) return Results.NotFound();
+
+    db.Memberships.Remove(membership);
+    await db.SaveChangesAsync();
+
+    // Sync to Keycloak group (best-effort)
+    _ = Task.Run(async () =>
+    {
+        try { await RemoveUserFromKeycloakGroupAsync(config, httpClientFactory, env.IsDevelopment(), targetUserId, $"spaces/{tenant.Slug}"); }
+        catch { }
+    });
+
+    return Results.NoContent();
+}).RequireAuthorization();
+
+// Join a public space (self-service)
+tenantsApi.MapPost("/{tenantId:int}/join", async (int tenantId, ClaimsPrincipal user, AppDbContext db, IConfiguration config, IWebHostEnvironment env, IHttpClientFactory httpClientFactory) =>
+{
+    var tenant = await db.Tenants.FindAsync(tenantId);
+    if (tenant is null) return Results.NotFound();
+    if (tenant.Visibility == TenantVisibility.Private) return Results.Forbid();
+
+    var userId = user.FindFirstValue(ClaimTypes.NameIdentifier) ?? user.FindFirstValue("sub");
+    if (userId is null) return Results.Unauthorized();
+    if (tenant.OwnerId == userId) return Results.BadRequest("You are already the owner of this space.");
+
+    var existing = await db.Memberships.AnyAsync(m => m.TenantId == tenantId && m.UserId == userId);
+    if (existing) return Results.Conflict("You are already a member of this space.");
+
+    var membership = new Membership { TenantId = tenantId, UserId = userId, Role = TenantMemberRole.Member };
+    db.Memberships.Add(membership);
+    await db.SaveChangesAsync();
+
+    _ = Task.Run(async () =>
+    {
+        try { await AddUserToKeycloakGroupAsync(config, httpClientFactory, env.IsDevelopment(), userId, $"spaces/{tenant.Slug}"); }
+        catch { }
+    });
+
+    return Results.Created($"/api/tenants/{tenantId}/members/{userId}", new { membership.UserId, membership.Role, membership.JoinedAt });
+}).RequireAuthorization();
+
+// Leave a space (self-service)
+tenantsApi.MapDelete("/{tenantId:int}/leave", async (int tenantId, ClaimsPrincipal user, AppDbContext db, IConfiguration config, IWebHostEnvironment env, IHttpClientFactory httpClientFactory) =>
+{
+    var tenant = await db.Tenants.FindAsync(tenantId);
+    if (tenant is null) return Results.NotFound();
+    var userId = user.FindFirstValue(ClaimTypes.NameIdentifier) ?? user.FindFirstValue("sub");
+    if (userId is null) return Results.Unauthorized();
+    if (tenant.OwnerId == userId) return Results.BadRequest("Owners cannot leave their own space. Transfer ownership or delete it.");
+
+    var membership = await db.Memberships.FirstOrDefaultAsync(m => m.TenantId == tenantId && m.UserId == userId);
+    if (membership is null) return Results.NotFound("You are not a member of this space.");
+
+    db.Memberships.Remove(membership);
+    await db.SaveChangesAsync();
+
+    _ = Task.Run(async () =>
+    {
+        try { await RemoveUserFromKeycloakGroupAsync(config, httpClientFactory, env.IsDevelopment(), userId, $"spaces/{tenant.Slug}"); }
+        catch { }
+    });
+
+    return Results.NoContent();
+}).RequireAuthorization();
+
 // --- Bookings API ---
 var bookingsApi = app.MapGroup("/api/bookings").RequireAuthorization();
 
@@ -320,11 +598,20 @@ bookingsApi.MapGet("/", async (ClaimsPrincipal user, AppDbContext db) =>
 // Create booking
 bookingsApi.MapPost("/", async (CreateBookingRequest req, ClaimsPrincipal user, AppDbContext db) =>
 {
-    var resource = await db.Resources.FindAsync(req.ResourceId);
+    var resource = await db.Resources.Include(r => r.Tenant).FirstOrDefaultAsync(r => r.Id == req.ResourceId);
     if (resource is null || !resource.IsActive)
         return Results.BadRequest("Resource not found or inactive.");
 
-    var userId = user.FindFirstValue(ClaimTypes.NameIdentifier) ?? user.FindFirstValue("sub")!;
+    var userId = user.FindFirstValue(ClaimTypes.NameIdentifier) ?? user.FindFirstValue("sub");
+    if (userId is null) return Results.Unauthorized();
+
+    // Private space access check
+    if (resource.Tenant.Visibility == TenantVisibility.Private && !IsAdmin(user) && resource.Tenant.OwnerId != userId)
+    {
+        if (!await db.Memberships.AnyAsync(m => m.TenantId == resource.TenantId && m.UserId == userId))
+            return Results.Forbid();
+    }
+
     var userName = user.FindFirstValue(ClaimTypes.Name) ?? user.FindFirstValue("preferred_username") ?? userId;
     var userFirstName = user.FindFirstValue(ClaimTypes.GivenName) ?? user.FindFirstValue("given_name") ?? string.Empty;
     var userLastName = user.FindFirstValue(ClaimTypes.Surname) ?? user.FindFirstValue("family_name") ?? string.Empty;
@@ -650,9 +937,121 @@ static string GetKeycloakAdminUrl(IConfiguration config, bool isDevelopment)
     return isDevelopment ? url : url.Replace("http://", "https://");
 }
 
+static async Task CreateKeycloakGroupAsync(IConfiguration config, IHttpClientFactory factory, bool isDevelopment, string groupPath)
+{
+    var adminToken = await GetKeycloakAdminTokenAsync(config, factory, isDevelopment);
+    if (adminToken is null) return;
+    var adminUrl = GetKeycloakAdminUrl(config, isDevelopment);
+    var realm = config["Keycloak:RealmName"] ?? "bookit";
+    var client = factory.CreateClient("keycloak-account");
+
+    // groupPath is "spaces/my-slug" — create parent "spaces" first if needed, then child
+    var parts = groupPath.Split('/');
+    string? parentId = null;
+    foreach (var part in parts)
+    {
+        var searchReq = new HttpRequestMessage(HttpMethod.Get, parentId is null
+            ? $"{adminUrl}/admin/realms/{realm}/groups?search={Uri.EscapeDataString(part)}&exact=true&top=true"
+            : $"{adminUrl}/admin/realms/{realm}/groups/{parentId}/children?search={Uri.EscapeDataString(part)}");
+        searchReq.Headers.Authorization = new AuthenticationHeaderValue("Bearer", adminToken);
+        var searchRes = await client.SendAsync(searchReq);
+        var groups = searchRes.IsSuccessStatusCode
+            ? await searchRes.Content.ReadFromJsonAsync<List<KeycloakGroupRepresentation>>()
+            : null;
+        var existing = groups?.FirstOrDefault(g => g.Name == part);
+        if (existing is not null)
+        {
+            parentId = existing.Id;
+            continue;
+        }
+        var createUrl = parentId is null
+            ? $"{adminUrl}/admin/realms/{realm}/groups"
+            : $"{adminUrl}/admin/realms/{realm}/groups/{parentId}/children";
+        var createReq = new HttpRequestMessage(HttpMethod.Post, createUrl);
+        createReq.Headers.Authorization = new AuthenticationHeaderValue("Bearer", adminToken);
+        createReq.Content = JsonContent.Create(new { name = part });
+        var createRes = await client.SendAsync(createReq);
+        if (createRes.IsSuccessStatusCode || createRes.StatusCode == System.Net.HttpStatusCode.Conflict)
+        {
+            var newLocation = createRes.Headers.Location?.ToString();
+            var newId = newLocation?.Split('/').LastOrDefault();
+            if (!string.IsNullOrEmpty(newId))
+            {
+                parentId = newId;
+            }
+            else
+            {
+                // Location header missing — re-fetch to find the group
+                var refetchUrl = parentId is null
+                    ? $"{adminUrl}/admin/realms/{realm}/groups?search={Uri.EscapeDataString(part)}&exact=true&top=true"
+                    : $"{adminUrl}/admin/realms/{realm}/groups/{parentId}/children?search={Uri.EscapeDataString(part)}";
+                var refetchReq = new HttpRequestMessage(HttpMethod.Get, refetchUrl);
+                refetchReq.Headers.Authorization = new AuthenticationHeaderValue("Bearer", adminToken);
+                var refetchRes = await client.SendAsync(refetchReq);
+                if (!refetchRes.IsSuccessStatusCode) return;
+                var refetched = await refetchRes.Content.ReadFromJsonAsync<List<KeycloakGroupRepresentation>>();
+                parentId = refetched?.FirstOrDefault(g => g.Name == part)?.Id;
+                if (parentId is null) return;
+            }
+        }
+    }
+}
+
+static async Task AddUserToKeycloakGroupAsync(IConfiguration config, IHttpClientFactory factory, bool isDevelopment, string userId, string groupPath)
+{
+    var adminToken = await GetKeycloakAdminTokenAsync(config, factory, isDevelopment);
+    if (adminToken is null) return;
+    var adminUrl = GetKeycloakAdminUrl(config, isDevelopment);
+    var realm = config["Keycloak:RealmName"] ?? "bookit";
+    var client = factory.CreateClient("keycloak-account");
+    var groupId = await FindKeycloakGroupIdAsync(client, adminToken, adminUrl, realm, groupPath);
+    if (groupId is null) return;
+    var req = new HttpRequestMessage(HttpMethod.Put, $"{adminUrl}/admin/realms/{realm}/users/{userId}/groups/{groupId}");
+    req.Headers.Authorization = new AuthenticationHeaderValue("Bearer", adminToken);
+    await client.SendAsync(req);
+}
+
+static async Task RemoveUserFromKeycloakGroupAsync(IConfiguration config, IHttpClientFactory factory, bool isDevelopment, string userId, string groupPath)
+{
+    var adminToken = await GetKeycloakAdminTokenAsync(config, factory, isDevelopment);
+    if (adminToken is null) return;
+    var adminUrl = GetKeycloakAdminUrl(config, isDevelopment);
+    var realm = config["Keycloak:RealmName"] ?? "bookit";
+    var client = factory.CreateClient("keycloak-account");
+    var groupId = await FindKeycloakGroupIdAsync(client, adminToken, adminUrl, realm, groupPath);
+    if (groupId is null) return;
+    var req = new HttpRequestMessage(HttpMethod.Delete, $"{adminUrl}/admin/realms/{realm}/users/{userId}/groups/{groupId}");
+    req.Headers.Authorization = new AuthenticationHeaderValue("Bearer", adminToken);
+    await client.SendAsync(req);
+}
+
+static async Task<string?> FindKeycloakGroupIdAsync(HttpClient client, string adminToken, string adminUrl, string realm, string groupPath)
+{
+    var parts = groupPath.Split('/');
+    string? parentId = null;
+    string? groupId = null;
+    foreach (var part in parts)
+    {
+        var searchUrl = parentId is null
+            ? $"{adminUrl}/admin/realms/{realm}/groups?search={Uri.EscapeDataString(part)}&exact=true&top=true"
+            : $"{adminUrl}/admin/realms/{realm}/groups/{parentId}/children?search={Uri.EscapeDataString(part)}";
+        var searchReq = new HttpRequestMessage(HttpMethod.Get, searchUrl);
+        searchReq.Headers.Authorization = new AuthenticationHeaderValue("Bearer", adminToken);
+        var searchRes = await client.SendAsync(searchReq);
+        if (!searchRes.IsSuccessStatusCode) return null;
+        var groups = await searchRes.Content.ReadFromJsonAsync<List<KeycloakGroupRepresentation>>();
+        var found = groups?.FirstOrDefault(g => g.Name == part);
+        if (found is null) return null;
+        parentId = found.Id;
+        groupId = found.Id;
+    }
+    return groupId;
+}
+
 // Request/Response records
-record CreateTenantRequest(string Name, string Slug, string? Description);
-record UpdateTenantRequest(string? Name, string? Description);
+record CreateTenantRequest(string Name, string Slug, string? Description, string? Visibility);
+record UpdateTenantRequest(string? Name, string? Description, string? Visibility);
+record AddMemberRequest(string? UserId, string? Email, string? Role, string? FirstName, string? LastName, bool Create = false);
 record CreateResourceRequest(string Name, string? Description, string ResourceType, int SlotDurationMinutes, int MaxAdvanceDays);
 record UpdateResourceRequest(string? Name, string? Description, string? ResourceType, int SlotDurationMinutes, int MaxAdvanceDays, bool? IsActive);
 record CreateBookingRequest(int ResourceId, DateOnly Date, TimeOnly StartTime);
@@ -688,3 +1087,9 @@ class KeycloakRoleRepresentation
 }
 record AdminCreateUserRequest(string? FirstName, string? LastName, string Email, string? PhoneNumber, string TemporaryPassword, List<string>? Roles);
 record AdminUpdateUserRequest(string? FirstName, string? LastName, string? Email, string? PhoneNumber, List<string> Roles);
+class KeycloakGroupRepresentation
+{
+    [System.Text.Json.Serialization.JsonPropertyName("id")] public string? Id { get; set; }
+    [System.Text.Json.Serialization.JsonPropertyName("name")] public string? Name { get; set; }
+    [System.Text.Json.Serialization.JsonPropertyName("path")] public string? Path { get; set; }
+}
