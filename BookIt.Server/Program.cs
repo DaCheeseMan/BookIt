@@ -390,6 +390,31 @@ tenantsApi.MapGet("/{tenantId:int}/members", async (int tenantId, ClaimsPrincipa
     return Results.Ok(enriched);
 }).RequireAuthorization();
 
+// Search for a Keycloak user by email (check before adding as member)
+tenantsApi.MapGet("/{tenantId:int}/members/search", async (int tenantId, string email, ClaimsPrincipal user, AppDbContext db, IConfiguration config, IWebHostEnvironment env, IHttpClientFactory httpClientFactory) =>
+{
+    var tenant = await db.Tenants.FindAsync(tenantId);
+    if (tenant is null) return Results.NotFound();
+    var userId = user.FindFirstValue(ClaimTypes.NameIdentifier) ?? user.FindFirstValue("sub");
+    if (userId is null) return Results.Unauthorized();
+    if (tenant.OwnerId != userId && !IsAdmin(user)) return Results.Forbid();
+
+    var adminToken = await GetKeycloakAdminTokenAsync(config, httpClientFactory, env.IsDevelopment());
+    if (adminToken is null) return Results.StatusCode(502);
+    var adminUrl = GetKeycloakAdminUrl(config, env.IsDevelopment());
+    var realm = config["Keycloak:RealmName"] ?? "bookit";
+    var client = httpClientFactory.CreateClient("keycloak-account");
+
+    var searchReq = new HttpRequestMessage(HttpMethod.Get, $"{adminUrl}/admin/realms/{realm}/users?email={Uri.EscapeDataString(email)}&exact=true");
+    searchReq.Headers.Authorization = new AuthenticationHeaderValue("Bearer", adminToken);
+    var searchRes = await client.SendAsync(searchReq);
+    if (!searchRes.IsSuccessStatusCode) return Results.StatusCode((int)searchRes.StatusCode);
+    var users = await searchRes.Content.ReadFromJsonAsync<List<KeycloakUserRepresentation>>();
+    var found = users?.FirstOrDefault();
+    if (found is null) return Results.NotFound();
+    return Results.Ok(new { found.Id, found.FirstName, found.LastName, found.Email });
+}).RequireAuthorization();
+
 // Add a member to a tenant (owner or global admin)
 tenantsApi.MapPost("/{tenantId:int}/members", async (int tenantId, AddMemberRequest req, ClaimsPrincipal user, AppDbContext db, IConfiguration config, IWebHostEnvironment env, IHttpClientFactory httpClientFactory) =>
 {
@@ -414,8 +439,35 @@ tenantsApi.MapPost("/{tenantId:int}/members", async (int tenantId, AddMemberRequ
         if (!searchRes.IsSuccessStatusCode) return Results.StatusCode((int)searchRes.StatusCode);
         var users = await searchRes.Content.ReadFromJsonAsync<List<KeycloakUserRepresentation>>();
         targetUserId = users?.FirstOrDefault()?.Id;
+
         if (string.IsNullOrWhiteSpace(targetUserId))
-            return Results.NotFound("No user found with that email address.");
+        {
+            // User not found — create in Keycloak if requested
+            if (!req.Create || string.IsNullOrWhiteSpace(req.FirstName) || string.IsNullOrWhiteSpace(req.LastName))
+                return Results.NotFound("No user found with that email address.");
+
+            var newUser = new KeycloakUserRepresentation
+            {
+                Username = req.Email, Email = req.Email,
+                FirstName = req.FirstName.Trim(), LastName = req.LastName.Trim(),
+                Enabled = true,
+            };
+            var createReq = new HttpRequestMessage(HttpMethod.Post, $"{adminUrl}/admin/realms/{realm}/users");
+            createReq.Headers.Authorization = new AuthenticationHeaderValue("Bearer", adminToken);
+            createReq.Content = JsonContent.Create(newUser);
+            var createRes = await client.SendAsync(createReq);
+            if (!createRes.IsSuccessStatusCode)
+                return Results.Problem("Could not create user in Keycloak.", statusCode: (int)createRes.StatusCode);
+
+            targetUserId = createRes.Headers.Location?.Segments.Last();
+            if (string.IsNullOrWhiteSpace(targetUserId)) return Results.StatusCode(500);
+
+            // Send invite email so the new user can set their password
+            var actionsReq = new HttpRequestMessage(HttpMethod.Put, $"{adminUrl}/admin/realms/{realm}/users/{targetUserId}/execute-actions-email");
+            actionsReq.Headers.Authorization = new AuthenticationHeaderValue("Bearer", adminToken);
+            actionsReq.Content = JsonContent.Create(new[] { "VERIFY_EMAIL", "UPDATE_PASSWORD" });
+            await client.SendAsync(actionsReq);
+        }
     }
 
     if (string.IsNullOrWhiteSpace(targetUserId))
@@ -999,7 +1051,7 @@ static async Task<string?> FindKeycloakGroupIdAsync(HttpClient client, string ad
 // Request/Response records
 record CreateTenantRequest(string Name, string Slug, string? Description, string? Visibility);
 record UpdateTenantRequest(string? Name, string? Description, string? Visibility);
-record AddMemberRequest(string? UserId, string? Email, string? Role);
+record AddMemberRequest(string? UserId, string? Email, string? Role, string? FirstName, string? LastName, bool Create = false);
 record CreateResourceRequest(string Name, string? Description, string ResourceType, int SlotDurationMinutes, int MaxAdvanceDays);
 record UpdateResourceRequest(string? Name, string? Description, string? ResourceType, int SlotDurationMinutes, int MaxAdvanceDays, bool? IsActive);
 record CreateBookingRequest(int ResourceId, DateOnly Date, TimeOnly StartTime);

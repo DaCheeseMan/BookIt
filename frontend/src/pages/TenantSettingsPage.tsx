@@ -1,7 +1,8 @@
 import { useEffect, useState } from 'react';
 import { useNavigate, useParams } from 'react-router-dom';
 import { useAuth } from 'react-oidc-context';
-import { tenantsApi, resourcesApi, membersApi, type Tenant, type Resource, type Member } from '../api/client';
+import { tenantsApi, resourcesApi, membersApi, type Tenant, type Resource, type Member, type UserSearchResult } from '../api/client';
+import { ConfirmDialog } from '../components/ConfirmDialog';
 
 const RESOURCE_TYPES = ['Court', 'Sauna', 'Meeting room', 'Restaurant', 'Boat', 'Car', 'Gym', 'Pool', 'Other'];
 const SLOT_DURATIONS = [
@@ -40,11 +41,16 @@ export function TenantSettingsPage() {
   const [creatingRes, setCreatingRes] = useState(false);
   const [resError, setResError] = useState<string | null>(null);
 
-  // Member management
-  const [addMemberEmail, setAddMemberEmail] = useState('');
-  const [addingMember, setAddingMember] = useState(false);
+  // Member management — multi-step invite flow
+  const [inviteEmail, setInviteEmail] = useState('');
+  const [inviteStep, setInviteStep] = useState<'idle' | 'searching' | 'found' | 'not-found' | 'granting' | 'creating'>('idle');
+  const [foundUser, setFoundUser] = useState<UserSearchResult | null>(null);
+  const [newFirstName, setNewFirstName] = useState('');
+  const [newLastName, setNewLastName] = useState('');
+  const [inviteRole, setInviteRole] = useState<'Member' | 'Admin'>('Member');
   const [memberError, setMemberError] = useState<string | null>(null);
   const [removingMemberId, setRemovingMemberId] = useState<string | null>(null);
+  const [confirmRemoveMember, setConfirmRemoveMember] = useState<Member | null>(null);
 
   const myUserId = auth.user?.profile.sub;
 
@@ -93,36 +99,79 @@ export function TenantSettingsPage() {
     }
   }
 
-  async function handleAddMember(e: React.FormEvent) {
-    e.preventDefault();
-    if (!tenant || !addMemberEmail.trim()) return;
+  function resetInvite() {
+    setInviteStep('idle');
+    setInviteEmail('');
+    setFoundUser(null);
+    setNewFirstName('');
+    setNewLastName('');
+    setInviteRole('Member');
     setMemberError(null);
-    setAddingMember(true);
+  }
+
+  async function handleFindUser(e: React.FormEvent) {
+    e.preventDefault();
+    if (!tenant || !inviteEmail.trim()) return;
+    setMemberError(null);
+    setInviteStep('searching');
     try {
-      await membersApi.add(tenant.id, { email: addMemberEmail.trim() });
-      setAddMemberEmail('');
+      const u = await membersApi.searchByEmail(tenant.id, inviteEmail.trim());
+      setFoundUser(u);
+      setInviteStep('found');
+    } catch (err: unknown) {
+      const axiosErr = err as { response?: { status?: number } };
+      if (axiosErr?.response?.status === 404) {
+        setInviteStep('not-found');
+      } else {
+        setMemberError('Could not search for user.');
+        setInviteStep('idle');
+      }
+    }
+  }
+
+  async function handleGrantAccess() {
+    if (!tenant || !foundUser) return;
+    setMemberError(null);
+    setInviteStep('granting');
+    try {
+      await membersApi.add(tenant.id, { userId: foundUser.id, role: inviteRole });
+      resetInvite();
       await loadData();
     } catch (err: unknown) {
-      const axiosErr = err as { response?: { data?: string | { title?: string }; status?: number } };
-      const data = axiosErr?.response?.data;
-      const status = axiosErr?.response?.status;
-      if (status === 404) {
-        setMemberError('No user found with that email address.');
-      } else if (status === 409) {
-        setMemberError('User is already a member.');
-      } else {
-        const msg = typeof data === 'string' ? data : data?.title;
-        setMemberError(msg ?? 'Could not add member.');
-      }
-    } finally {
-      setAddingMember(false);
+      const axiosErr = err as { response?: { status?: number } };
+      if (axiosErr?.response?.status === 409) setMemberError('User is already a member.');
+      else setMemberError('Could not add member.');
+      setInviteStep('found');
+    }
+  }
+
+  async function handleCreateAndInvite(e: React.FormEvent) {
+    e.preventDefault();
+    if (!tenant || !inviteEmail.trim() || !newFirstName.trim() || !newLastName.trim()) return;
+    setMemberError(null);
+    setInviteStep('creating');
+    try {
+      await membersApi.add(tenant.id, {
+        email: inviteEmail.trim(),
+        firstName: newFirstName.trim(),
+        lastName: newLastName.trim(),
+        role: inviteRole,
+        create: true,
+      });
+      resetInvite();
+      await loadData();
+    } catch (err: unknown) {
+      const axiosErr = err as { response?: { status?: number } };
+      if (axiosErr?.response?.status === 409) setMemberError('User is already a member.');
+      else setMemberError('Could not create user.');
+      setInviteStep('not-found');
     }
   }
 
   async function handleRemoveMember(userId: string) {
     if (!tenant) return;
-    if (!confirm('Remove this member from the space?')) return;
     setRemovingMemberId(userId);
+    setConfirmRemoveMember(null);
     try {
       await membersApi.remove(tenant.id, userId);
       await loadData();
@@ -294,23 +343,123 @@ export function TenantSettingsPage() {
       <section className="bg-white rounded-2xl shadow-sm border border-slate-200/60 p-6 mb-5">
         <h2 className="text-lg font-bold text-slate-800 mb-5">Members ({members.length})</h2>
 
-        {/* Add member by email */}
-        <form className="flex gap-3 mb-5 flex-wrap" onSubmit={handleAddMember} noValidate>
-          <input
-            type="email"
-            className="flex-1 min-w-0 px-3.5 py-2.5 rounded-xl border border-slate-300 text-sm focus:outline-none focus:ring-2 focus:ring-indigo-600 focus:border-indigo-600 transition-colors font-[inherit] bg-white"
-            placeholder="Add member by email address"
-            value={addMemberEmail}
-            onChange={e => { setAddMemberEmail(e.target.value); setMemberError(null); }}
-          />
-          <button
-            type="submit"
-            className="bg-indigo-600 hover:bg-indigo-700 text-white font-semibold px-4 py-2.5 rounded-xl transition-colors cursor-pointer disabled:opacity-50 disabled:cursor-not-allowed min-h-[44px] max-md:w-full"
-            disabled={addingMember || !addMemberEmail.trim()}
-          >
-            {addingMember ? 'Adding…' : '+ Add member'}
-          </button>
-        </form>
+        {/* Invite flow */}
+        {(inviteStep === 'idle' || inviteStep === 'searching') && (
+          <form className="flex gap-3 mb-5 flex-wrap" onSubmit={handleFindUser} noValidate>
+            <input
+              type="email"
+              className="flex-1 min-w-0 px-3.5 py-2.5 rounded-xl border border-slate-300 text-sm focus:outline-none focus:ring-2 focus:ring-indigo-600 focus:border-indigo-600 transition-colors font-[inherit] bg-white"
+              placeholder="Find user by email address"
+              value={inviteEmail}
+              onChange={e => { setInviteEmail(e.target.value); setMemberError(null); }}
+              disabled={inviteStep === 'searching'}
+            />
+            <button
+              type="submit"
+              className="bg-indigo-600 hover:bg-indigo-700 text-white font-semibold px-4 py-2.5 rounded-xl transition-colors cursor-pointer disabled:opacity-50 disabled:cursor-not-allowed min-h-[44px] max-md:w-full"
+              disabled={inviteStep === 'searching' || !inviteEmail.trim()}
+            >
+              {inviteStep === 'searching' ? 'Searching…' : 'Find User →'}
+            </button>
+          </form>
+        )}
+
+        {(inviteStep === 'found' || inviteStep === 'granting') && (
+          <div className="mb-5 p-4 bg-emerald-50 border border-emerald-200 rounded-xl">
+            <p className="text-xs font-semibold text-emerald-700 uppercase tracking-wide mb-3">✓ User found in Keycloak</p>
+            <div className="flex items-center gap-2.5 mb-4">
+              <div className="w-9 h-9 rounded-full bg-indigo-100 text-indigo-700 flex items-center justify-center text-sm font-bold shrink-0">
+                {(foundUser?.firstName?.[0] ?? foundUser?.email?.[0] ?? '?').toUpperCase()}
+              </div>
+              <div>
+                <p className="text-sm font-semibold text-slate-800">
+                  {[foundUser?.firstName, foundUser?.lastName].filter(Boolean).join(' ') || foundUser?.email}
+                </p>
+                <p className="text-xs text-slate-500">{foundUser?.email}</p>
+              </div>
+            </div>
+            <p className="text-xs font-semibold text-slate-600 mb-2">Role</p>
+            <div className="flex gap-2 flex-wrap mb-4">
+              {(['Member', 'Admin'] as const).map(r => (
+                <label key={r} className={`flex items-center gap-2 px-3 py-2 rounded-xl border cursor-pointer text-sm font-semibold transition-colors ${inviteRole === r ? 'border-indigo-600 bg-indigo-50 text-indigo-700' : 'border-slate-300 text-slate-600 hover:bg-slate-50'}`}>
+                  <input type="radio" name="grant-role" value={r} checked={inviteRole === r} onChange={() => setInviteRole(r)} className="sr-only" />
+                  {r}
+                </label>
+              ))}
+            </div>
+            <div className="flex gap-2 flex-wrap">
+              <button
+                className="bg-indigo-600 hover:bg-indigo-700 text-white font-semibold px-4 py-2 rounded-xl text-sm transition-colors cursor-pointer disabled:opacity-50 min-h-[44px] max-md:w-full"
+                disabled={inviteStep === 'granting'}
+                onClick={handleGrantAccess}
+              >
+                {inviteStep === 'granting' ? 'Granting…' : 'Grant Access'}
+              </button>
+              <button
+                type="button"
+                className="text-slate-600 hover:text-slate-900 font-semibold px-4 py-2 rounded-xl text-sm border border-slate-300 hover:bg-slate-50 transition-colors cursor-pointer min-h-[44px] max-md:w-full"
+                onClick={resetInvite}
+              >
+                Cancel
+              </button>
+            </div>
+          </div>
+        )}
+
+        {(inviteStep === 'not-found' || inviteStep === 'creating') && (
+          <div className="mb-5 p-4 bg-amber-50 border border-amber-200 rounded-xl">
+            <p className="text-sm font-semibold text-amber-800 mb-1">No account found for <span className="font-mono text-xs">{inviteEmail}</span></p>
+            <p className="text-xs text-slate-500 mb-4">Create a new Keycloak account. They'll receive an email to set their password.</p>
+            <form onSubmit={handleCreateAndInvite} noValidate>
+              <div className="flex gap-2 flex-wrap mb-3">
+                <input
+                  type="text"
+                  className="flex-1 min-w-[120px] px-3.5 py-2 rounded-xl border border-slate-300 text-sm focus:outline-none focus:ring-2 focus:ring-indigo-600 transition-colors font-[inherit] bg-white"
+                  placeholder="First name"
+                  value={newFirstName}
+                  onChange={e => setNewFirstName(e.target.value)}
+                  required
+                  disabled={inviteStep === 'creating'}
+                />
+                <input
+                  type="text"
+                  className="flex-1 min-w-[120px] px-3.5 py-2 rounded-xl border border-slate-300 text-sm focus:outline-none focus:ring-2 focus:ring-indigo-600 transition-colors font-[inherit] bg-white"
+                  placeholder="Last name"
+                  value={newLastName}
+                  onChange={e => setNewLastName(e.target.value)}
+                  required
+                  disabled={inviteStep === 'creating'}
+                />
+              </div>
+              <p className="text-xs font-semibold text-slate-600 mb-2">Role</p>
+              <div className="flex gap-2 flex-wrap mb-4">
+                {(['Member', 'Admin'] as const).map(r => (
+                  <label key={r} className={`flex items-center gap-2 px-3 py-2 rounded-xl border cursor-pointer text-sm font-semibold transition-colors ${inviteRole === r ? 'border-indigo-600 bg-indigo-50 text-indigo-700' : 'border-slate-300 text-slate-600 hover:bg-slate-50'}`}>
+                    <input type="radio" name="create-role" value={r} checked={inviteRole === r} onChange={() => setInviteRole(r)} className="sr-only" />
+                    {r}
+                  </label>
+                ))}
+              </div>
+              <div className="flex gap-2 flex-wrap">
+                <button
+                  type="submit"
+                  className="bg-indigo-600 hover:bg-indigo-700 text-white font-semibold px-4 py-2 rounded-xl text-sm transition-colors cursor-pointer disabled:opacity-50 min-h-[44px] max-md:w-full"
+                  disabled={inviteStep === 'creating' || !newFirstName.trim() || !newLastName.trim()}
+                >
+                  {inviteStep === 'creating' ? 'Creating…' : 'Create & Invite'}
+                </button>
+                <button
+                  type="button"
+                  className="text-slate-600 hover:text-slate-900 font-semibold px-4 py-2 rounded-xl text-sm border border-slate-300 hover:bg-slate-50 transition-colors cursor-pointer min-h-[44px] max-md:w-full"
+                  onClick={resetInvite}
+                >
+                  Cancel
+                </button>
+              </div>
+            </form>
+          </div>
+        )}
+
         {memberError && <div className="bg-red-50 border border-red-200 text-red-700 rounded-xl px-4 py-3 text-sm mb-4">⚠️ {memberError}</div>}
 
         {members.length === 0 ? (
@@ -336,7 +485,7 @@ export function TenantSettingsPage() {
                   <button
                     className="bg-red-50 hover:bg-red-100 text-red-700 font-semibold px-3.5 py-1.5 text-sm min-h-[36px] rounded-xl border border-red-200 transition-colors cursor-pointer disabled:opacity-50 max-md:w-full"
                     disabled={removingMemberId === m.userId}
-                    onClick={() => handleRemoveMember(m.userId)}
+                    onClick={() => setConfirmRemoveMember(m)}
                   >
                     {removingMemberId === m.userId ? 'Removing…' : 'Remove'}
                   </button>
@@ -346,6 +495,27 @@ export function TenantSettingsPage() {
           </div>
         )}
       </section>
+
+      {confirmRemoveMember && (
+        <ConfirmDialog
+          title="Remove member?"
+          confirmLabel="Remove"
+          cancelLabel="Keep member"
+          onConfirm={() => handleRemoveMember(confirmRemoveMember.userId)}
+          onCancel={() => setConfirmRemoveMember(null)}
+        >
+          <div className="grid gap-x-4 gap-y-1.5" style={{ gridTemplateColumns: 'auto 1fr' }}>
+            <span className="font-semibold text-slate-500 text-sm whitespace-nowrap">Name</span>
+            <span className="text-slate-900 text-sm">
+              {[confirmRemoveMember.firstName, confirmRemoveMember.lastName].filter(Boolean).join(' ') || '–'}
+            </span>
+            <span className="font-semibold text-slate-500 text-sm whitespace-nowrap">Email</span>
+            <span className="text-slate-900 text-sm">{confirmRemoveMember.email || '–'}</span>
+            <span className="font-semibold text-slate-500 text-sm whitespace-nowrap">Role</span>
+            <span className="text-slate-900 text-sm">{confirmRemoveMember.role}</span>
+          </div>
+        </ConfirmDialog>
+      )}
     </div>
   );
 }

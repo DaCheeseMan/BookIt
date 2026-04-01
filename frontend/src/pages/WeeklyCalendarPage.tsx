@@ -2,6 +2,7 @@ import React, { useEffect, useState, useCallback } from 'react';
 import { useNavigate, useParams } from 'react-router-dom';
 import { useAuth } from 'react-oidc-context';
 import { bookingsApi, resourcesApi, tenantsApi, getUserRoles, setAuthToken, type Resource, type ResourceBooking } from '../api/client';
+import { ConfirmDialog } from '../components/ConfirmDialog';
 
 const DAY_NAMES = ['Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat', 'Sun'];
 
@@ -458,26 +459,25 @@ export function WeeklyCalendarPage() {
       )}
 
       {confirmBooking && (
-        <div className="fixed inset-0 bg-black/45 flex items-center justify-center z-[100]" onClick={() => setConfirmBooking(null)}>
-          <div className="bg-white rounded-2xl p-7 max-w-[360px] w-[90%] shadow-2xl" onClick={e => e.stopPropagation()}>
-            <h3 className="mb-3 text-lg font-semibold text-slate-900">Cancel booking?</h3>
-            <div className="grid gap-x-4 gap-y-1.5 mb-5" style={{ gridTemplateColumns: 'auto 1fr' }}>
-              {confirmBooking.userId !== myUserId && (
-                <>
-                  <div className="contents"><span className="font-semibold text-slate-500 text-sm whitespace-nowrap">First name</span><span className="text-slate-900 text-sm">{confirmBooking.userFirstName || '–'}</span></div>
-                  <div className="contents"><span className="font-semibold text-slate-500 text-sm whitespace-nowrap">Last name</span><span className="text-slate-900 text-sm">{confirmBooking.userLastName || '–'}</span></div>
-                  <div className="contents"><span className="font-semibold text-slate-500 text-sm whitespace-nowrap">Phone</span><span className="text-slate-900 text-sm">{confirmBooking.userPhone || '–'}</span></div>
-                </>
-              )}
-              <div className="contents"><span className="font-semibold text-slate-500 text-sm whitespace-nowrap">Date</span><span className="text-slate-900 text-sm">📅 {confirmBooking.date}</span></div>
-              <div className="contents"><span className="font-semibold text-slate-500 text-sm whitespace-nowrap">Time</span><span className="text-slate-900 text-sm">⏰ {confirmBooking.startTime.slice(0, 5)}–{confirmBooking.endTime.slice(0, 5)}</span></div>
-            </div>
-            <div className="flex gap-3 justify-end">
-              <button className="bg-red-700 hover:bg-red-800 text-white border-none rounded-lg px-5 py-2 text-sm font-semibold cursor-pointer transition-colors" onClick={confirmAdminCancel}>Cancel booking</button>
-              <button className="bg-white hover:bg-slate-50 text-slate-700 font-semibold px-5 py-2 rounded-lg border border-slate-200 text-sm cursor-pointer transition-colors" onClick={() => setConfirmBooking(null)}>Keep it</button>
-            </div>
+        <ConfirmDialog
+          title="Cancel booking?"
+          confirmLabel="Cancel booking"
+          cancelLabel="Keep it"
+          onConfirm={confirmAdminCancel}
+          onCancel={() => setConfirmBooking(null)}
+        >
+          <div className="grid gap-x-4 gap-y-1.5" style={{ gridTemplateColumns: 'auto 1fr' }}>
+            {confirmBooking.userId !== myUserId && (
+              <>
+                <div className="contents"><span className="font-semibold text-slate-500 text-sm whitespace-nowrap">First name</span><span className="text-slate-900 text-sm">{confirmBooking.userFirstName || '–'}</span></div>
+                <div className="contents"><span className="font-semibold text-slate-500 text-sm whitespace-nowrap">Last name</span><span className="text-slate-900 text-sm">{confirmBooking.userLastName || '–'}</span></div>
+                <div className="contents"><span className="font-semibold text-slate-500 text-sm whitespace-nowrap">Phone</span><span className="text-slate-900 text-sm">{confirmBooking.userPhone || '–'}</span></div>
+              </>
+            )}
+            <div className="contents"><span className="font-semibold text-slate-500 text-sm whitespace-nowrap">Date</span><span className="text-slate-900 text-sm">📅 {confirmBooking.date}</span></div>
+            <div className="contents"><span className="font-semibold text-slate-500 text-sm whitespace-nowrap">Time</span><span className="text-slate-900 text-sm">⏰ {confirmBooking.startTime.slice(0, 5)}–{confirmBooking.endTime.slice(0, 5)}</span></div>
           </div>
-        </div>
+        </ConfirmDialog>
       )}
     </div>
   );

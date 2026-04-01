@@ -148,6 +148,16 @@ export interface AddMemberRequest {
   userId?: string;
   email?: string;
   role?: 'Member' | 'Admin';
+  firstName?: string;
+  lastName?: string;
+  create?: boolean;
+}
+
+export interface UserSearchResult {
+  id: string;
+  firstName?: string;
+  lastName?: string;
+  email?: string;
 }
 
 export const tenantsApi = {
@@ -162,6 +172,8 @@ export const tenantsApi = {
 
 export const membersApi = {
   getAll: (tenantId: number) => apiClient.get<Member[]>(`/tenants/${tenantId}/members`).then(r => r.data),
+  searchByEmail: (tenantId: number, email: string) =>
+    apiClient.get<UserSearchResult>(`/tenants/${tenantId}/members/search`, { params: { email } }).then(r => r.data),
   add: (tenantId: number, req: AddMemberRequest) =>
     apiClient.post<Member>(`/tenants/${tenantId}/members`, req).then(r => r.data),
   remove: (tenantId: number, userId: string) =>
