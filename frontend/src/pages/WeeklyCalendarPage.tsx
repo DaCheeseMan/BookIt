@@ -73,6 +73,7 @@ export function WeeklyCalendarPage() {
   const [confirmBooking, setConfirmBooking] = useState<ResourceBooking | null>(null);
   const [infoBooking, setInfoBooking] = useState<ResourceBooking | null>(null);
   const [loadingSlot, setLoadingSlot] = useState<string | null>(null);
+  const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [forbidden, setForbidden] = useState(false);
   const [confirmedSlot, setConfirmedSlot] = useState<string | null>(null);
@@ -129,14 +130,16 @@ export function WeeklyCalendarPage() {
     tenantsApi.getById(slug).then(t => {
       setTenantId(t.id);
       return resourcesApi.getById(t.id, Number(resourceId));
-    }).then(setResource).catch((err: unknown) => {
+    }).then(r => {
+      setResource(r);
+    }).catch((err: unknown) => {
       const axiosErr = err as { response?: { status?: number } };
       if (axiosErr?.response?.status === 403) {
         setForbidden(true);
       } else {
         setError('Resource not found.');
       }
-    });
+    }).finally(() => setLoading(false));
   }, [auth.user, slug, resourceId]);
 
   useEffect(() => {
@@ -211,6 +214,10 @@ export function WeeklyCalendarPage() {
   }
 
   const atBookingLimit = !isAdmin && myFutureCount >= 3;
+
+  if (loading) {
+    return <div className="flex justify-center items-center h-48 text-slate-500 text-lg">Loading…</div>;
+  }
 
   if (forbidden) {
     return (
