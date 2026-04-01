@@ -572,7 +572,191 @@ tenantsApi.MapDelete("/{tenantId:int}/leave", async (int tenantId, ClaimsPrincip
     return Results.NoContent();
 }).RequireAuthorization();
 
-// --- Bookings API ---
+// --- Invitations API ---
+// Create invite(s) for a tenant (owner or admin member)
+tenantsApi.MapPost("/{slug}/invitations", async (string slug, CreateInvitationsRequest req, ClaimsPrincipal user, AppDbContext db) =>
+{
+    var tenant = await db.Tenants.FirstOrDefaultAsync(t => t.Slug == slug);
+    if (tenant is null) return Results.NotFound();
+    var userId = user.FindFirstValue(ClaimTypes.NameIdentifier) ?? user.FindFirstValue("sub");
+    if (userId is null) return Results.Unauthorized();
+    if (tenant.OwnerId != userId && !IsAdmin(user))
+    {
+        var callerMembership = await db.Memberships.FirstOrDefaultAsync(m => m.TenantId == tenant.Id && m.UserId == userId);
+        if (callerMembership?.Role != TenantMemberRole.Admin) return Results.Forbid();
+    }
+
+    if (req.Emails is null || req.Emails.Count == 0)
+        return Results.BadRequest("At least one email address is required.");
+
+    var created = new List<Invitation>();
+    foreach (var rawEmail in req.Emails)
+    {
+        var email = rawEmail?.Trim().ToLowerInvariant() ?? "";
+        if (string.IsNullOrWhiteSpace(email)) continue;
+
+        // Revoke any existing pending invite for this email in this tenant
+        var existing = await db.Invitations.Where(i => i.TenantId == tenant.Id && i.Email == email && i.Status == InvitationStatus.Pending).ToListAsync();
+        foreach (var old in existing) old.Status = InvitationStatus.Revoked;
+
+        var token = Convert.ToBase64String(System.Security.Cryptography.RandomNumberGenerator.GetBytes(32))
+            .Replace("+", "-").Replace("/", "_").TrimEnd('=');
+
+        var invitation = new Invitation
+        {
+            TenantId = tenant.Id,
+            Email = email,
+            Role = req.Role ?? "Member",
+            Token = token,
+            InvitedBy = userId,
+            ExpiresAt = DateTimeOffset.UtcNow.AddDays(7),
+        };
+        db.Invitations.Add(invitation);
+        created.Add(invitation);
+    }
+
+    await db.SaveChangesAsync();
+    return Results.Ok(created.Select(i => new {
+        i.Id, i.Email, i.Role, i.Token, i.Status, i.CreatedAt, i.ExpiresAt
+    }));
+}).RequireAuthorization();
+
+// List invitations for a tenant (owner or admin member)
+tenantsApi.MapGet("/{slug}/invitations", async (string slug, ClaimsPrincipal user, AppDbContext db) =>
+{
+    var tenant = await db.Tenants.FirstOrDefaultAsync(t => t.Slug == slug);
+    if (tenant is null) return Results.NotFound();
+    var userId = user.FindFirstValue(ClaimTypes.NameIdentifier) ?? user.FindFirstValue("sub");
+    if (userId is null) return Results.Unauthorized();
+    if (tenant.OwnerId != userId && !IsAdmin(user))
+    {
+        var callerMembership = await db.Memberships.FirstOrDefaultAsync(m => m.TenantId == tenant.Id && m.UserId == userId);
+        if (callerMembership?.Role != TenantMemberRole.Admin) return Results.Forbid();
+    }
+
+    // Auto-expire invitations that are past their ExpiresAt
+    var now = DateTimeOffset.UtcNow;
+    var expired = await db.Invitations.Where(i => i.TenantId == tenant.Id && i.Status == InvitationStatus.Pending && i.ExpiresAt <= now).ToListAsync();
+    foreach (var e in expired) e.Status = InvitationStatus.Expired;
+    if (expired.Count > 0) await db.SaveChangesAsync();
+
+    var invitations = await db.Invitations
+        .Where(i => i.TenantId == tenant.Id)
+        .OrderByDescending(i => i.CreatedAt)
+        .Select(i => new { i.Id, i.Email, i.Role, i.Token, i.Status, i.CreatedAt, i.ExpiresAt, i.AcceptedAt, i.AcceptedByUserId })
+        .ToListAsync();
+    return Results.Ok(invitations);
+}).RequireAuthorization();
+
+// Revoke an invitation (owner or admin member)
+tenantsApi.MapDelete("/{slug}/invitations/{invitationId:guid}", async (string slug, Guid invitationId, ClaimsPrincipal user, AppDbContext db) =>
+{
+    var tenant = await db.Tenants.FirstOrDefaultAsync(t => t.Slug == slug);
+    if (tenant is null) return Results.NotFound();
+    var userId = user.FindFirstValue(ClaimTypes.NameIdentifier) ?? user.FindFirstValue("sub");
+    if (userId is null) return Results.Unauthorized();
+    if (tenant.OwnerId != userId && !IsAdmin(user))
+    {
+        var callerMembership = await db.Memberships.FirstOrDefaultAsync(m => m.TenantId == tenant.Id && m.UserId == userId);
+        if (callerMembership?.Role != TenantMemberRole.Admin) return Results.Forbid();
+    }
+
+    var invitation = await db.Invitations.FirstOrDefaultAsync(i => i.Id == invitationId && i.TenantId == tenant.Id);
+    if (invitation is null) return Results.NotFound();
+    if (invitation.Status != InvitationStatus.Pending) return Results.BadRequest("Only pending invitations can be revoked.");
+
+    invitation.Status = InvitationStatus.Revoked;
+    await db.SaveChangesAsync();
+    return Results.NoContent();
+}).RequireAuthorization();
+
+// --- Public Invitations API ---
+var invitationsApi = app.MapGroup("/api/invitations");
+
+// Get invite details (public — used to show space name and status before accepting)
+invitationsApi.MapGet("/{token}", async (string token, AppDbContext db) =>
+{
+    var invitation = await db.Invitations
+        .Include(i => i.Tenant)
+        .FirstOrDefaultAsync(i => i.Token == token);
+    if (invitation is null) return Results.NotFound();
+
+    // Auto-expire
+    if (invitation.Status == InvitationStatus.Pending && invitation.ExpiresAt <= DateTimeOffset.UtcNow)
+    {
+        invitation.Status = InvitationStatus.Expired;
+        await db.SaveChangesAsync();
+    }
+
+    return Results.Ok(new {
+        invitation.Id,
+        invitation.Email,
+        invitation.Role,
+        invitation.Status,
+        invitation.ExpiresAt,
+        tenantName = invitation.Tenant.Name,
+        tenantSlug = invitation.Tenant.Slug,
+    });
+});
+
+// Accept an invitation (requires authentication)
+invitationsApi.MapPost("/{token}/accept", async (string token, ClaimsPrincipal user, AppDbContext db, IConfiguration config, IWebHostEnvironment env, IHttpClientFactory httpClientFactory) =>
+{
+    var userId = user.FindFirstValue(ClaimTypes.NameIdentifier) ?? user.FindFirstValue("sub");
+    if (userId is null) return Results.Unauthorized();
+
+    var invitation = await db.Invitations
+        .Include(i => i.Tenant)
+        .FirstOrDefaultAsync(i => i.Token == token);
+    if (invitation is null) return Results.NotFound();
+
+    if (invitation.Status == InvitationStatus.Pending && invitation.ExpiresAt <= DateTimeOffset.UtcNow)
+    {
+        invitation.Status = InvitationStatus.Expired;
+        await db.SaveChangesAsync();
+    }
+
+    if (invitation.Status == InvitationStatus.Accepted)
+        return Results.Conflict("This invitation has already been accepted.");
+    if (invitation.Status == InvitationStatus.Revoked)
+        return Results.BadRequest("This invitation has been revoked.");
+    if (invitation.Status == InvitationStatus.Expired)
+        return Results.BadRequest("This invitation has expired.");
+
+    var tenant = invitation.Tenant;
+
+    // Don't add owner as member
+    if (userId == tenant.OwnerId)
+    {
+        invitation.Status = InvitationStatus.Accepted;
+        invitation.AcceptedAt = DateTimeOffset.UtcNow;
+        invitation.AcceptedByUserId = userId;
+        await db.SaveChangesAsync();
+        return Results.Ok(new { tenantName = tenant.Name, tenantSlug = tenant.Slug });
+    }
+
+    // Check if already a member
+    var existing = await db.Memberships.FirstOrDefaultAsync(m => m.TenantId == tenant.Id && m.UserId == userId);
+    if (existing is null)
+    {
+        var role = invitation.Role == "Admin" ? TenantMemberRole.Admin : TenantMemberRole.Member;
+        var membership = new Membership { TenantId = tenant.Id, UserId = userId, Role = role };
+        db.Memberships.Add(membership);
+
+        _ = Task.Run(async () =>
+        {
+            try { await AddUserToKeycloakGroupAsync(config, httpClientFactory, env.IsDevelopment(), userId, $"spaces/{tenant.Slug}"); }
+            catch { }
+        });
+    }
+
+    invitation.Status = InvitationStatus.Accepted;
+    invitation.AcceptedAt = DateTimeOffset.UtcNow;
+    invitation.AcceptedByUserId = userId;
+    await db.SaveChangesAsync();
+
+    return Results.Ok(new { tenantName = tenant.Name, tenantSlug = tenant.Slug });
+}).RequireAuthorization();
 var bookingsApi = app.MapGroup("/api/bookings").RequireAuthorization();
 
 // User's own bookings
@@ -1052,6 +1236,7 @@ static async Task<string?> FindKeycloakGroupIdAsync(HttpClient client, string ad
 record CreateTenantRequest(string Name, string Slug, string? Description, string? Visibility);
 record UpdateTenantRequest(string? Name, string? Description, string? Visibility);
 record AddMemberRequest(string? UserId, string? Email, string? Role, string? FirstName, string? LastName, bool Create = false);
+record CreateInvitationsRequest(List<string>? Emails, string? Role);
 record CreateResourceRequest(string Name, string? Description, string ResourceType, int SlotDurationMinutes, int MaxAdvanceDays);
 record UpdateResourceRequest(string? Name, string? Description, string? ResourceType, int SlotDurationMinutes, int MaxAdvanceDays, bool? IsActive);
 record CreateBookingRequest(int ResourceId, DateOnly Date, TimeOnly StartTime);

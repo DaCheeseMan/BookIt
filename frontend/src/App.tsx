@@ -12,6 +12,7 @@ import { MyBookingsPage } from './pages/MyBookingsPage'
 import { ProfilePage } from './pages/ProfilePage'
 import { AdminUsersPage } from './pages/AdminUsersPage'
 import { TenantSettingsPage } from './pages/TenantSettingsPage'
+import { InviteAcceptPage } from './pages/InviteAcceptPage'
 import { setAuthToken, setupAuthHandlers } from './api/client'
 import './App.css'
 
@@ -19,6 +20,7 @@ function App() {
   const auth = useAuth()
   const location = useLocation()
   const isLandingPage = location.pathname === '/'
+  const isInvitePage = location.pathname.startsWith('/invite/')
 
   useEffect(() => {
     setAuthToken(auth.user?.access_token ?? null)
@@ -38,8 +40,8 @@ function App() {
 
   return (
     <div className="app">
-      {!isLandingPage && <Navbar />}
-      {!isLandingPage && <PasskeyPromptBanner />}
+      {!isLandingPage && !isInvitePage && <Navbar />}
+      {!isLandingPage && !isInvitePage && <PasskeyPromptBanner />}
       <main>
         <Routes>
           <Route path="/" element={<LandingPage />} />
@@ -50,6 +52,7 @@ function App() {
           <Route path="/my-bookings" element={<ProtectedRoute><MyBookingsPage /></ProtectedRoute>} />
           <Route path="/profile" element={<ProtectedRoute><ProfilePage /></ProtectedRoute>} />
           <Route path="/admin/users" element={<ProtectedRoute><AdminUsersPage /></ProtectedRoute>} />
+          <Route path="/invite/:token" element={<InviteAcceptPage />} />
         </Routes>
       </main>
     </div>

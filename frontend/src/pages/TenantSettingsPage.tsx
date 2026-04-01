@@ -1,7 +1,7 @@
 import { useEffect, useState } from 'react';
 import { useNavigate, useParams } from 'react-router-dom';
 import { useAuth } from 'react-oidc-context';
-import { tenantsApi, resourcesApi, membersApi, type Tenant, type Resource, type Member, type UserSearchResult } from '../api/client';
+import { tenantsApi, resourcesApi, membersApi, invitationsApi, type Tenant, type Resource, type Member, type UserSearchResult, type Invitation } from '../api/client';
 import { ConfirmDialog } from '../components/ConfirmDialog';
 
 const RESOURCE_TYPES = ['Court', 'Sauna', 'Meeting room', 'Restaurant', 'Boat', 'Car', 'Gym', 'Pool', 'Other'];
@@ -21,6 +21,7 @@ export function TenantSettingsPage() {
   const [tenant, setTenant] = useState<Tenant | null>(null);
   const [resources, setResources] = useState<Resource[]>([]);
   const [members, setMembers] = useState<Member[]>([]);
+  const [invites, setInvites] = useState<Invitation[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
 
@@ -52,6 +53,15 @@ export function TenantSettingsPage() {
   const [removingMemberId, setRemovingMemberId] = useState<string | null>(null);
   const [confirmRemoveMember, setConfirmRemoveMember] = useState<Member | null>(null);
 
+  // Invite link state
+  const [inviteLinkEmail, setInviteLinkEmail] = useState('');
+  const [inviteLinkRole, setInviteLinkRole] = useState<'Member' | 'Admin'>('Member');
+  const [sendingInviteLink, setSendingInviteLink] = useState(false);
+  const [inviteLinkError, setInviteLinkError] = useState<string | null>(null);
+  const [inviteLinkSuccess, setInviteLinkSuccess] = useState(false);
+  const [revokingInviteId, setRevokingInviteId] = useState<string | null>(null);
+  const [copiedTokenId, setCopiedTokenId] = useState<string | null>(null);
+
   const myUserId = auth.user?.profile.sub;
 
   async function loadData() {
@@ -68,6 +78,7 @@ export function TenantSettingsPage() {
       ]);
       setResources(res);
       setMembers(mems);
+      invitationsApi.getAll(t.slug).then(setInvites).catch(() => {});
     } catch {
       setError('Space not found or access denied.');
     } finally {
@@ -180,6 +191,47 @@ export function TenantSettingsPage() {
     } finally {
       setRemovingMemberId(null);
     }
+  }
+
+  async function handleSendInviteLink(e: React.FormEvent) {
+    e.preventDefault();
+    if (!tenant || !inviteLinkEmail.trim()) return;
+    setSendingInviteLink(true);
+    setInviteLinkError(null);
+    setInviteLinkSuccess(false);
+    try {
+      const emails = inviteLinkEmail.split(',').map(s => s.trim()).filter(Boolean);
+      await invitationsApi.create(tenant.slug, emails, inviteLinkRole);
+      setInviteLinkEmail('');
+      setInviteLinkSuccess(true);
+      setTimeout(() => setInviteLinkSuccess(false), 4000);
+      invitationsApi.getAll(tenant.slug).then(setInvites).catch(() => {});
+    } catch {
+      setInviteLinkError('Could not create invite link.');
+    } finally {
+      setSendingInviteLink(false);
+    }
+  }
+
+  async function handleRevokeInvite(inviteId: string) {
+    if (!tenant) return;
+    setRevokingInviteId(inviteId);
+    try {
+      await invitationsApi.revoke(tenant.slug, inviteId);
+      setInvites(prev => prev.map(i => i.id === inviteId ? { ...i, status: 'Revoked' as const } : i));
+    } catch {
+      setError('Could not revoke invite.');
+    } finally {
+      setRevokingInviteId(null);
+    }
+  }
+
+  function handleCopyInviteLink(token: string, inviteId: string) {
+    const url = `${window.location.origin}/invite/${token}`;
+    navigator.clipboard.writeText(url).then(() => {
+      setCopiedTokenId(inviteId);
+      setTimeout(() => setCopiedTokenId(null), 2000);
+    }).catch(() => {});
   }
 
   async function handleAddResource(e: React.FormEvent) {
@@ -494,6 +546,85 @@ export function TenantSettingsPage() {
             })}
           </div>
         )}
+      </section>
+
+      {/* Invite links */}
+      <section className="bg-white rounded-2xl shadow-sm border border-slate-200/60 p-6 mb-5">
+        <h2 className="text-lg font-bold text-slate-800 mb-1">Invite links</h2>
+        <p className="text-sm text-slate-500 mb-5">Generate a time-limited link (7 days) to share with users. Anyone with the link can join as a member.</p>
+
+        <form className="flex flex-col gap-3 mb-5" onSubmit={handleSendInviteLink} noValidate>
+          {inviteLinkSuccess && <div className="bg-emerald-50 border border-emerald-200 text-emerald-700 rounded-xl px-4 py-3 text-sm">✅ Invite link created! Copy it from the list below.</div>}
+          {inviteLinkError && <div className="bg-red-50 border border-red-200 text-red-700 rounded-xl px-4 py-3 text-sm">⚠️ {inviteLinkError}</div>}
+          <div className="flex gap-3 flex-wrap">
+            <input
+              type="text"
+              className="flex-1 min-w-0 px-3.5 py-2.5 rounded-xl border border-slate-300 text-sm focus:outline-none focus:ring-2 focus:ring-indigo-600 focus:border-indigo-600 transition-colors font-[inherit] bg-white"
+              placeholder="email@example.com (comma-separate multiple)"
+              value={inviteLinkEmail}
+              onChange={e => { setInviteLinkEmail(e.target.value); setInviteLinkError(null); }}
+              disabled={sendingInviteLink}
+            />
+            <button
+              type="submit"
+              className="bg-indigo-600 hover:bg-indigo-700 text-white font-semibold px-4 py-2.5 rounded-xl transition-colors cursor-pointer disabled:opacity-50 disabled:cursor-not-allowed min-h-[44px] max-md:w-full"
+              disabled={sendingInviteLink || !inviteLinkEmail.trim()}
+            >
+              {sendingInviteLink ? 'Creating…' : 'Create Invite Link'}
+            </button>
+          </div>
+          <div className="flex gap-2 flex-wrap">
+            <p className="text-xs font-semibold text-slate-600 self-center">Role:</p>
+            {(['Member', 'Admin'] as const).map(r => (
+              <label key={r} className={`flex items-center gap-2 px-3 py-1.5 rounded-xl border cursor-pointer text-sm font-semibold transition-colors ${inviteLinkRole === r ? 'border-indigo-600 bg-indigo-50 text-indigo-700' : 'border-slate-300 text-slate-600 hover:bg-slate-50'}`}>
+                <input type="radio" name="invite-link-role" value={r} checked={inviteLinkRole === r} onChange={() => setInviteLinkRole(r)} className="sr-only" />
+                {r}
+              </label>
+            ))}
+          </div>
+        </form>
+
+        {invites.length > 0 && (
+          <div className="flex flex-col gap-2">
+            {invites.map(inv => {
+              const statusBadge = inv.status === 'Pending'
+                ? 'bg-amber-100 text-amber-700'
+                : inv.status === 'Accepted'
+                ? 'bg-emerald-100 text-emerald-700'
+                : 'bg-slate-100 text-slate-500';
+              return (
+                <div key={inv.id} className="flex items-center justify-between gap-3 px-4 py-3 bg-slate-50 border border-slate-200 rounded-xl flex-wrap max-md:flex-col max-md:items-start">
+                  <div className="flex items-center gap-2.5 flex-wrap min-w-0">
+                    <span className="text-sm font-semibold text-slate-800 truncate">{inv.email}</span>
+                    <span className={`text-xs font-semibold px-2 py-0.5 rounded-full ${statusBadge}`}>{inv.status}</span>
+                    <span className="text-xs text-slate-400">{inv.role}</span>
+                    <span className="text-xs text-slate-400">Expires {new Date(inv.expiresAt).toLocaleDateString()}</span>
+                  </div>
+                  <div className="flex gap-2 flex-wrap max-md:w-full">
+                    {inv.status === 'Pending' && (
+                      <>
+                        <button
+                          className="bg-white hover:bg-slate-100 text-slate-700 font-semibold px-3 py-1.5 text-sm min-h-[36px] rounded-xl border border-slate-200 transition-colors cursor-pointer max-md:flex-1"
+                          onClick={() => handleCopyInviteLink(inv.token, inv.id)}
+                        >
+                          {copiedTokenId === inv.id ? '✓ Copied!' : '📋 Copy link'}
+                        </button>
+                        <button
+                          className="bg-red-50 hover:bg-red-100 text-red-700 font-semibold px-3 py-1.5 text-sm min-h-[36px] rounded-xl border border-red-200 transition-colors cursor-pointer disabled:opacity-50 max-md:flex-1"
+                          disabled={revokingInviteId === inv.id}
+                          onClick={() => handleRevokeInvite(inv.id)}
+                        >
+                          {revokingInviteId === inv.id ? 'Revoking…' : 'Revoke'}
+                        </button>
+                      </>
+                    )}
+                  </div>
+                </div>
+              );
+            })}
+          </div>
+        )}
+        {invites.length === 0 && <p className="text-sm text-slate-400">No invites yet.</p>}
       </section>
 
       {confirmRemoveMember && (

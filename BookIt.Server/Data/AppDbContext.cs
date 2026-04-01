@@ -9,6 +9,7 @@ public class AppDbContext(DbContextOptions<AppDbContext> options) : DbContext(op
     public DbSet<Resource> Resources => Set<Resource>();
     public DbSet<Booking> Bookings => Set<Booking>();
     public DbSet<Membership> Memberships => Set<Membership>();
+    public DbSet<Invitation> Invitations => Set<Invitation>();
 
     protected override void OnModelCreating(ModelBuilder modelBuilder)
     {
@@ -38,6 +39,16 @@ public class AppDbContext(DbContextOptions<AppDbContext> options) : DbContext(op
 
         modelBuilder.Entity<Membership>()
             .HasIndex(m => new { m.TenantId, m.UserId })
+            .IsUnique();
+
+        modelBuilder.Entity<Invitation>()
+            .HasOne(i => i.Tenant)
+            .WithMany()
+            .HasForeignKey(i => i.TenantId)
+            .OnDelete(DeleteBehavior.Cascade);
+
+        modelBuilder.Entity<Invitation>()
+            .HasIndex(i => i.Token)
             .IsUnique();
     }
 }
