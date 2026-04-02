@@ -233,6 +233,28 @@ export interface PasskeyCredential {
   createdDate: number;
 }
 
+export interface Invitation {
+  id: string;
+  email: string;
+  role: string;
+  token: string;
+  status: 'Pending' | 'Accepted' | 'Expired' | 'Revoked';
+  createdAt: string;
+  expiresAt: string;
+  acceptedAt?: string;
+  acceptedByUserId?: string;
+}
+
+export interface InviteDetails {
+  id: string;
+  email: string;
+  role: string;
+  status: 'Pending' | 'Accepted' | 'Expired' | 'Revoked';
+  expiresAt: string;
+  tenantName: string;
+  tenantSlug: string;
+}
+
 export const keycloakAccountApi = {
   async listPasskeys(): Promise<PasskeyCredential[]> {
     return apiClient.get<PasskeyCredential[]>('/profile/passkeys').then(r => r.data);
@@ -241,5 +263,18 @@ export const keycloakAccountApi = {
   async deletePasskey(id: string): Promise<void> {
     await apiClient.delete(`/profile/passkeys/${id}`);
   },
+};
+
+export const invitationsApi = {
+  create: (slug: string, emails: string[], role?: string) =>
+    apiClient.post<Invitation[]>(`/tenants/${slug}/invitations`, { emails, role }).then(r => r.data),
+  getAll: (slug: string) =>
+    apiClient.get<Invitation[]>(`/tenants/${slug}/invitations`).then(r => r.data),
+  revoke: (slug: string, invitationId: string) =>
+    apiClient.delete(`/tenants/${slug}/invitations/${invitationId}`),
+  getDetails: (token: string) =>
+    apiClient.get<InviteDetails>(`/invitations/${token}`).then(r => r.data),
+  accept: (token: string) =>
+    apiClient.post<{ tenantName: string; tenantSlug: string }>(`/invitations/${token}/accept`).then(r => r.data),
 };
 
