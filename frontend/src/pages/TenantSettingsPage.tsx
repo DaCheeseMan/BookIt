@@ -407,6 +407,8 @@ export function TenantSettingsPage() {
       </section>
 
       {/* Members */}
+      {tenant.visibility === 'Private' ? (
+      <>
       <section className="bg-white rounded-2xl shadow-sm border border-slate-200/60 p-6 mb-5">
         <h2 className="text-lg font-bold text-slate-800 mb-5">Members ({members.length})</h2>
 
@@ -642,6 +644,18 @@ export function TenantSettingsPage() {
         )}
         {invites.length === 0 && <p className="text-sm text-slate-400">No invites yet.</p>}
       </section>
+      </>) : (
+      <section className="bg-white rounded-2xl shadow-sm border border-slate-200/60 p-6 mb-5">
+        <h2 className="text-lg font-bold text-slate-800 mb-2">Members &amp; Access</h2>
+        <div className="flex items-start gap-3 p-4 bg-emerald-50 border border-emerald-200 rounded-xl">
+          <span className="text-xl mt-0.5">🌐</span>
+          <div>
+            <p className="text-sm font-semibold text-emerald-800 mb-1">This is a public space</p>
+            <p className="text-sm text-slate-600">Anyone can browse and book resources — no membership required. To restrict access, change the visibility to <span className="font-semibold">Private</span> in the settings above.</p>
+          </div>
+        </div>
+      </section>
+      )}
 
       {confirmRemoveMember && (
         <ConfirmDialog

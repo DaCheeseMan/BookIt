@@ -2,6 +2,7 @@ import { useEffect, useState } from 'react';
 import { useNavigate, useParams } from 'react-router-dom';
 import { useAuth } from 'react-oidc-context';
 import { tenantsApi, resourcesApi, membersApi, type Tenant, type Resource } from '../api/client';
+import { ConfirmDialog } from '../components/ConfirmDialog';
 
 const RESOURCE_TYPE_ICONS: Record<string, string> = {
   court: '🏓', tennis: '🎾', padel: '🏓', sauna: '🧖', spa: '💆',
@@ -29,6 +30,7 @@ export function TenantPage() {
   const [error, setError] = useState<string | null>(null);
   const [forbidden, setForbidden] = useState(false);
   const [isMember, setIsMember] = useState(false);
+  const [confirmLeave, setConfirmLeave] = useState(false);
 
   const myUserId = auth.user?.profile.sub;
   const isOwner = tenant?.ownerId === myUserId;
@@ -57,7 +59,7 @@ export function TenantPage() {
   }, [slug]);
 
   async function handleLeave() {
-    if (!tenant || !confirm('Leave this space?')) return;
+    if (!tenant) return;
     try {
       await membersApi.leave(tenant.id);
       navigate('/tenants');
@@ -104,8 +106,8 @@ export function TenantPage() {
               ⚙️ Settings
             </button>
           )}
-          {!isOwner && isMember && (
-            <button className="bg-white hover:bg-red-50 text-red-600 font-semibold px-4 py-2.5 rounded-xl border border-red-200 transition-colors cursor-pointer min-h-[44px] text-sm max-md:w-full" onClick={handleLeave}>
+          {!isOwner && isMember && tenant.visibility === 'Private' && (
+            <button className="bg-white hover:bg-red-50 text-red-600 font-semibold px-4 py-2.5 rounded-xl border border-red-200 transition-colors cursor-pointer min-h-[44px] text-sm max-md:w-full" onClick={() => setConfirmLeave(true)}>
               Leave space
             </button>
           )}
@@ -148,6 +150,17 @@ export function TenantPage() {
             </div>
           ))}
         </div>
+      )}
+      {confirmLeave && (
+        <ConfirmDialog
+          title="Leave this space?"
+          confirmLabel="Leave space"
+          cancelLabel="Stay"
+          onConfirm={handleLeave}
+          onCancel={() => setConfirmLeave(false)}
+        >
+          <p className="text-sm text-slate-500">You will lose access to <span className="font-semibold text-slate-700">{tenant.name}</span> and its resources.</p>
+        </ConfirmDialog>
       )}
     </div>
   );

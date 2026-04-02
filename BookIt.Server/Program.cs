@@ -553,6 +553,7 @@ tenantsApi.MapDelete("/{tenantId:int}/leave", async (int tenantId, ClaimsPrincip
 {
     var tenant = await db.Tenants.FindAsync(tenantId);
     if (tenant is null) return Results.NotFound();
+    if (tenant.Visibility == TenantVisibility.Public) return Results.BadRequest("Public spaces are open to everyone — there is no membership to leave.");
     var userId = user.FindFirstValue(ClaimTypes.NameIdentifier) ?? user.FindFirstValue("sub");
     if (userId is null) return Results.Unauthorized();
     if (tenant.OwnerId == userId) return Results.BadRequest("Owners cannot leave their own space. Transfer ownership or delete it.");
@@ -811,15 +812,6 @@ bookingsApi.MapPost("/", async (CreateBookingRequest req, ClaimsPrincipal user, 
 
     if (req.Date > today.AddDays(resource.MaxAdvanceDays))
         return Results.BadRequest($"Cannot book more than {resource.MaxAdvanceDays} days in advance.");
-
-    if (!IsAdmin(user))
-    {
-        var futureCount = await db.Bookings.CountAsync(b =>
-            b.UserId == userId && b.TenantId == resource.TenantId &&
-            (b.Date > today || (b.Date == today && b.StartTime > nowTime)));
-        if (futureCount >= 3)
-            return Results.BadRequest("You cannot have more than 3 upcoming bookings for this space.");
-    }
 
     var overlap = await db.Bookings.AnyAsync(b =>
         b.ResourceId == req.ResourceId &&
