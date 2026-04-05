@@ -47,12 +47,12 @@ function toTimeStr(hour: number, minute: number = 0): string {
 }
 
 function formatHHMM(hour: number, minute: number): string {
-  return `${hour}:${String(minute).padStart(2, '0')}`;
+  return `${String(hour).padStart(2, '0')}:${String(minute).padStart(2, '0')}`;
 }
 
 function calcEndTime(hour: number, minute: number, durationMinutes: number): { hour: number; minute: number } {
   const total = hour * 60 + minute + durationMinutes;
-  return { hour: Math.floor(total / 60), minute: total % 60 };
+  return { hour: Math.floor(total / 60) % 24, minute: total % 60 };
 }
 
 function formatSlotRange(hour: number, minute: number, durationMinutes: number): string {
