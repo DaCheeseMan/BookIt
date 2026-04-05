@@ -46,6 +46,20 @@ function toTimeStr(hour: number, minute: number = 0): string {
   return `${String(hour).padStart(2, '0')}:${String(minute).padStart(2, '0')}:00`;
 }
 
+function formatHHMM(hour: number, minute: number): string {
+  return `${hour}:${String(minute).padStart(2, '0')}`;
+}
+
+function calcEndTime(hour: number, minute: number, durationMinutes: number): { hour: number; minute: number } {
+  const total = hour * 60 + minute + durationMinutes;
+  return { hour: Math.floor(total / 60), minute: total % 60 };
+}
+
+function formatSlotRange(hour: number, minute: number, durationMinutes: number): string {
+  const end = calcEndTime(hour, minute, durationMinutes);
+  return `${formatHHMM(hour, minute)}–${formatHHMM(end.hour, end.minute)}`;
+}
+
 type SlotState = 'past' | 'free' | 'mine' | 'taken';
 
 interface SlotInfo {
@@ -422,12 +436,7 @@ export function WeeklyCalendarPage() {
                         {state === 'free' && !isLoading && auth.isAuthenticated && !atBookingLimit && (
                           <span className="flex flex-col items-center gap-px leading-none">
                             <span className="text-[0.7rem] font-semibold text-indigo-600 opacity-0 transition-opacity pointer-events-none group-hover:opacity-100">
-                              {(() => {
-                                const endTotalMin = hour * 60 + minute + slotDuration;
-                                const endH = Math.floor(endTotalMin / 60);
-                                const endM = endTotalMin % 60;
-                                return `${hour}:${String(minute).padStart(2, '0')}–${endH}:${String(endM).padStart(2, '0')}`;
-                              })()}
+                              {formatSlotRange(hour, minute, slotDuration)}
                             </span>
                             <span className="text-lg text-slate-300 transition-colors group-hover:text-indigo-600">+</span>
                           </span>
@@ -508,12 +517,7 @@ export function WeeklyCalendarPage() {
             <div className="contents">
               <span className="font-semibold text-slate-500 text-sm whitespace-nowrap">Time</span>
               <span className="text-slate-900 text-sm">
-                ⏰ {pendingSlot.hour}:{String(pendingSlot.minute).padStart(2, '0')}–{(() => {
-                  const endTotalMin = pendingSlot.hour * 60 + pendingSlot.minute + slotDuration;
-                  const endH = Math.floor(endTotalMin / 60);
-                  const endM = endTotalMin % 60;
-                  return `${endH}:${String(endM).padStart(2, '0')}`;
-                })()} ({slotDuration} min)
+                ⏰ {formatSlotRange(pendingSlot.hour, pendingSlot.minute, slotDuration)} ({slotDuration} min)
               </span>
             </div>
           </div>
