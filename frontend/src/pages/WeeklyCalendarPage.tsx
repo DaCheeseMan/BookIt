@@ -65,6 +65,7 @@ type SlotState = 'past' | 'free' | 'mine' | 'taken';
 interface SlotInfo {
   state: SlotState;
   booking?: ResourceBooking;
+  isStartSlot?: boolean;
 }
 
 const SLOT_STATE_CLASSES: Record<SlotState, string> = {
@@ -113,10 +114,14 @@ export function WeeklyCalendarPage() {
   // Compute time slots from resource slot duration
   const slotDuration = resource?.slotDurationMinutes ?? 60;
   const slotsPerHour = 60 / slotDuration;
+  const CALENDAR_END_MINUTES = 23 * 60; // calendar shows up to 23:00
   const SLOTS: { hour: number; minute: number }[] = [];
   for (let h = 7; h < 23; h++) {
     for (let s = 0; s < slotsPerHour; s++) {
-      SLOTS.push({ hour: h, minute: s * slotDuration });
+      const startMinutes = h * 60 + s * slotDuration;
+      if (startMinutes + slotDuration <= CALENDAR_END_MINUTES) {
+        SLOTS.push({ hour: h, minute: s * slotDuration });
+      }
     }
   }
 
@@ -174,13 +179,21 @@ export function WeeklyCalendarPage() {
     const isPast = dateStr < todayStr || (dateStr === todayStr && slotTime <= now.toTimeString().slice(0, 8));
     if (isPast) return { state: 'past' };
 
+    const slotMinutes = hour * 60 + minute;
     const booking = resourceBookings.find(b => {
-      return b.date === dateStr && b.startTime.slice(0, 5) === slotTime.slice(0, 5);
+      if (b.date !== dateStr) return false;
+      const [sh, sm] = b.startTime.split(':').map(Number);
+      const [eh, em] = b.endTime.split(':').map(Number);
+      const start = sh * 60 + sm;
+      const end = eh * 60 + em;
+      return slotMinutes >= start && slotMinutes < end;
     });
 
     if (!booking) return { state: 'free' };
-    if (booking.userId === myUserId) return { state: 'mine', booking };
-    return { state: 'taken', booking };
+    const [sh, sm] = booking.startTime.split(':').map(Number);
+    const isStartSlot = hour === sh && minute === sm;
+    if (booking.userId === myUserId) return { state: 'mine', booking, isStartSlot };
+    return { state: 'taken', booking, isStartSlot };
   }
 
   function handleSlotClick(dateStr: string, hour: number, minute: number) {
@@ -371,7 +384,7 @@ export function WeeklyCalendarPage() {
                   {visibleDays.map((day, di) => {
                     const dateStr = toDateStr(day);
                     const slotKey = `${dateStr}-${hour}-${minute}`;
-                    const { state, booking } = getSlotInfo(dateStr, hour, minute);
+                    const { state, booking, isStartSlot } = getSlotInfo(dateStr, hour, minute);
                     const isLoading = loadingSlot === slotKey;
                     const isConfirmed = confirmedSlot === slotKey;
                     const canBook = state === 'free' && auth.isAuthenticated && !atBookingLimit;
@@ -395,7 +408,7 @@ export function WeeklyCalendarPage() {
                         }
                       >
                         {isLoading && <span>⏳</span>}
-                        {state === 'mine' && !isLoading && booking && (
+                        {state === 'mine' && !isLoading && booking && isStartSlot && (
                           <span className="flex flex-col items-center text-center gap-0.5 leading-tight break-words max-w-full font-bold text-indigo-700 text-sm">
                             <span>You</span>
                             <span className="flex gap-1 mt-0.5 justify-center">
@@ -411,7 +424,7 @@ export function WeeklyCalendarPage() {
                             </span>
                           </span>
                         )}
-                        {state === 'taken' && !isLoading && booking && (
+                        {state === 'taken' && !isLoading && booking && isStartSlot && (
                           <span className="flex flex-col items-center text-center gap-0.5 leading-tight break-words max-w-full">
                             {auth.isAuthenticated
                               ? <><span className="text-red-700 font-semibold text-xs">{booking.userName}</span>

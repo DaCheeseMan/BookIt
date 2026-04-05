@@ -804,6 +804,9 @@ bookingsApi.MapPost("/", async (CreateBookingRequest req, ClaimsPrincipal user, 
     var start = req.StartTime;
     var end = start.AddMinutes(resource.SlotDurationMinutes);
 
+    if (end <= start) // AddMinutes wraps past midnight
+        return Results.BadRequest("Booking slot would extend past midnight.");
+
     var nowUtc = DateTime.UtcNow;
     var today = DateOnly.FromDateTime(nowUtc);
     var nowTime = TimeOnly.FromDateTime(nowUtc);
