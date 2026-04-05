@@ -46,11 +46,26 @@ function toTimeStr(hour: number, minute: number = 0): string {
   return `${String(hour).padStart(2, '0')}:${String(minute).padStart(2, '0')}:00`;
 }
 
+function formatHHMM(hour: number, minute: number): string {
+  return `${String(hour).padStart(2, '0')}:${String(minute).padStart(2, '0')}`;
+}
+
+function calcEndTime(hour: number, minute: number, durationMinutes: number): { hour: number; minute: number } {
+  const total = hour * 60 + minute + durationMinutes;
+  return { hour: Math.floor(total / 60) % 24, minute: total % 60 };
+}
+
+function formatSlotRange(hour: number, minute: number, durationMinutes: number): string {
+  const end = calcEndTime(hour, minute, durationMinutes);
+  return `${formatHHMM(hour, minute)}–${formatHHMM(end.hour, end.minute)}`;
+}
+
 type SlotState = 'past' | 'free' | 'mine' | 'taken';
 
 interface SlotInfo {
   state: SlotState;
   booking?: ResourceBooking;
+  isStartSlot?: boolean;
 }
 
 const SLOT_STATE_CLASSES: Record<SlotState, string> = {
@@ -73,6 +88,7 @@ export function WeeklyCalendarPage() {
   const [cancellingBooking, setCancellingBooking] = useState<number | null>(null);
   const [confirmBooking, setConfirmBooking] = useState<ResourceBooking | null>(null);
   const [infoBooking, setInfoBooking] = useState<ResourceBooking | null>(null);
+  const [pendingSlot, setPendingSlot] = useState<{ dateStr: string; hour: number; minute: number } | null>(null);
   const [loadingSlot, setLoadingSlot] = useState<string | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
@@ -98,10 +114,14 @@ export function WeeklyCalendarPage() {
   // Compute time slots from resource slot duration
   const slotDuration = resource?.slotDurationMinutes ?? 60;
   const slotsPerHour = 60 / slotDuration;
+  const CALENDAR_END_MINUTES = 23 * 60; // calendar shows up to 23:00
   const SLOTS: { hour: number; minute: number }[] = [];
   for (let h = 7; h < 23; h++) {
     for (let s = 0; s < slotsPerHour; s++) {
-      SLOTS.push({ hour: h, minute: s * slotDuration });
+      const startMinutes = h * 60 + s * slotDuration;
+      if (startMinutes + slotDuration <= CALENDAR_END_MINUTES) {
+        SLOTS.push({ hour: h, minute: s * slotDuration });
+      }
     }
   }
 
@@ -159,17 +179,24 @@ export function WeeklyCalendarPage() {
     const isPast = dateStr < todayStr || (dateStr === todayStr && slotTime <= now.toTimeString().slice(0, 8));
     if (isPast) return { state: 'past' };
 
+    const slotMinutes = hour * 60 + minute;
     const booking = resourceBookings.find(b => {
-      return b.date === dateStr && b.startTime.slice(0, 5) === slotTime.slice(0, 5);
+      if (b.date !== dateStr) return false;
+      const [sh, sm] = b.startTime.split(':').map(Number);
+      const [eh, em] = b.endTime.split(':').map(Number);
+      const start = sh * 60 + sm;
+      const end = eh * 60 + em;
+      return slotMinutes >= start && slotMinutes < end;
     });
 
     if (!booking) return { state: 'free' };
-    if (booking.userId === myUserId) return { state: 'mine', booking };
-    return { state: 'taken', booking };
+    const [sh, sm] = booking.startTime.split(':').map(Number);
+    const isStartSlot = hour === sh && minute === sm;
+    if (booking.userId === myUserId) return { state: 'mine', booking, isStartSlot };
+    return { state: 'taken', booking, isStartSlot };
   }
 
-  async function handleSlotClick(dateStr: string, hour: number, minute: number) {
-    const slotKey = `${dateStr}-${hour}-${minute}`;
+  function handleSlotClick(dateStr: string, hour: number, minute: number) {
     const { state } = getSlotInfo(dateStr, hour, minute);
     if (state !== 'free') return;
     if (!auth.isAuthenticated) return;
@@ -178,7 +205,14 @@ export function WeeklyCalendarPage() {
       return;
     }
     if (!resourceId || !tenantId) return;
+    setPendingSlot({ dateStr, hour, minute });
+  }
 
+  async function confirmSlotBooking() {
+    if (!pendingSlot || !resourceId || !tenantId) return;
+    const { dateStr, hour, minute } = pendingSlot;
+    const slotKey = `${dateStr}-${hour}-${minute}`;
+    setPendingSlot(null);
     setLoadingSlot(slotKey);
     setError(null);
     try {
@@ -243,6 +277,9 @@ export function WeeklyCalendarPage() {
           <h1 className="text-2xl font-bold text-slate-900">Book {resource?.name ?? '…'}</h1>
           {resource && (
             <span className="bg-indigo-100 text-indigo-700 rounded-full px-3 py-0.5 text-xs font-semibold">{resource.resourceType}</span>
+          )}
+          {resource && (
+            <span className="bg-indigo-100 text-indigo-700 rounded-full px-3 py-0.5 text-xs font-semibold">⏱ {slotDuration} min slots</span>
           )}
         </div>
         <div className="flex items-center gap-3 flex-wrap max-sm:w-full max-sm:justify-between">
@@ -347,7 +384,7 @@ export function WeeklyCalendarPage() {
                   {visibleDays.map((day, di) => {
                     const dateStr = toDateStr(day);
                     const slotKey = `${dateStr}-${hour}-${minute}`;
-                    const { state, booking } = getSlotInfo(dateStr, hour, minute);
+                    const { state, booking, isStartSlot } = getSlotInfo(dateStr, hour, minute);
                     const isLoading = loadingSlot === slotKey;
                     const isConfirmed = confirmedSlot === slotKey;
                     const canBook = state === 'free' && auth.isAuthenticated && !atBookingLimit;
@@ -371,7 +408,7 @@ export function WeeklyCalendarPage() {
                         }
                       >
                         {isLoading && <span>⏳</span>}
-                        {state === 'mine' && !isLoading && booking && (
+                        {state === 'mine' && !isLoading && booking && isStartSlot && (
                           <span className="flex flex-col items-center text-center gap-0.5 leading-tight break-words max-w-full font-bold text-indigo-700 text-sm">
                             <span>You</span>
                             <span className="flex gap-1 mt-0.5 justify-center">
@@ -387,7 +424,7 @@ export function WeeklyCalendarPage() {
                             </span>
                           </span>
                         )}
-                        {state === 'taken' && !isLoading && booking && (
+                        {state === 'taken' && !isLoading && booking && isStartSlot && (
                           <span className="flex flex-col items-center text-center gap-0.5 leading-tight break-words max-w-full">
                             {auth.isAuthenticated
                               ? <><span className="text-red-700 font-semibold text-xs">{booking.userName}</span>
@@ -412,7 +449,7 @@ export function WeeklyCalendarPage() {
                         {state === 'free' && !isLoading && auth.isAuthenticated && !atBookingLimit && (
                           <span className="flex flex-col items-center gap-px leading-none">
                             <span className="text-[0.7rem] font-semibold text-indigo-600 opacity-0 transition-opacity pointer-events-none group-hover:opacity-100">
-                              {hour}:{String(minute).padStart(2, '0')}
+                              {formatSlotRange(hour, minute, slotDuration)}
                             </span>
                             <span className="text-lg text-slate-300 transition-colors group-hover:text-indigo-600">+</span>
                           </span>
@@ -449,7 +486,7 @@ export function WeeklyCalendarPage() {
               )}
               <div className="contents"><span className="font-semibold text-slate-500 text-sm whitespace-nowrap">Phone</span><span className="text-slate-900 text-sm">{infoBooking.userPhone || '–'}</span></div>
               <div className="contents"><span className="font-semibold text-slate-500 text-sm whitespace-nowrap">Date</span><span className="text-slate-900 text-sm">📅 {infoBooking.date}</span></div>
-              <div className="contents"><span className="font-semibold text-slate-500 text-sm whitespace-nowrap">Time</span><span className="text-slate-900 text-sm">⏰ {infoBooking.startTime.slice(0, 5)}–{infoBooking.endTime.slice(0, 5)}</span></div>
+              <div className="contents"><span className="font-semibold text-slate-500 text-sm whitespace-nowrap">Time</span><span className="text-slate-900 text-sm">⏰ {infoBooking.startTime.slice(0, 5)}–{infoBooking.endTime.slice(0, 5)} ({slotDuration} min)</span></div>
             </div>
             <div className="flex gap-3 justify-end">
               <button className="bg-indigo-600 hover:bg-indigo-700 text-white border-none rounded-lg px-5 py-2 text-sm font-semibold cursor-pointer transition-colors" onClick={() => setInfoBooking(null)}>Close</button>
@@ -475,7 +512,27 @@ export function WeeklyCalendarPage() {
               </>
             )}
             <div className="contents"><span className="font-semibold text-slate-500 text-sm whitespace-nowrap">Date</span><span className="text-slate-900 text-sm">📅 {confirmBooking.date}</span></div>
-            <div className="contents"><span className="font-semibold text-slate-500 text-sm whitespace-nowrap">Time</span><span className="text-slate-900 text-sm">⏰ {confirmBooking.startTime.slice(0, 5)}–{confirmBooking.endTime.slice(0, 5)}</span></div>
+            <div className="contents"><span className="font-semibold text-slate-500 text-sm whitespace-nowrap">Time</span><span className="text-slate-900 text-sm">⏰ {confirmBooking.startTime.slice(0, 5)}–{confirmBooking.endTime.slice(0, 5)} ({slotDuration} min)</span></div>
+          </div>
+        </ConfirmDialog>
+      )}
+
+      {pendingSlot && (
+        <ConfirmDialog
+          title="Confirm booking"
+          confirmLabel="Book slot"
+          cancelLabel="Cancel"
+          onConfirm={confirmSlotBooking}
+          onCancel={() => setPendingSlot(null)}
+        >
+          <div className="grid gap-x-4 gap-y-1.5" style={{ gridTemplateColumns: 'auto 1fr' }}>
+            <div className="contents"><span className="font-semibold text-slate-500 text-sm whitespace-nowrap">Date</span><span className="text-slate-900 text-sm">📅 {pendingSlot.dateStr}</span></div>
+            <div className="contents">
+              <span className="font-semibold text-slate-500 text-sm whitespace-nowrap">Time</span>
+              <span className="text-slate-900 text-sm">
+                ⏰ {formatSlotRange(pendingSlot.hour, pendingSlot.minute, slotDuration)} ({slotDuration} min)
+              </span>
+            </div>
           </div>
         </ConfirmDialog>
       )}
