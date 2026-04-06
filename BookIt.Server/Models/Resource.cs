@@ -3,8 +3,8 @@ namespace BookIt.Server.Models;
 public class Resource
 {
     public int Id { get; set; }
-    public int TenantId { get; set; }
-    public Tenant Tenant { get; set; } = null!;
+    public int SpaceId { get; set; }
+    public Space Space { get; set; } = null!;
     public string Name { get; set; } = string.Empty;
     public string Description { get; set; } = string.Empty;
     public string ResourceType { get; set; } = string.Empty;

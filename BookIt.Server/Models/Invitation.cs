@@ -5,8 +5,8 @@ public enum InvitationStatus { Pending = 0, Accepted = 1, Expired = 2, Revoked =
 public class Invitation
 {
     public Guid Id { get; set; } = Guid.NewGuid();
-    public int TenantId { get; set; }
-    public Tenant Tenant { get; set; } = null!;
+    public int SpaceId { get; set; }
+    public Space Space { get; set; } = null!;
     public string Email { get; set; } = string.Empty;
     public string Role { get; set; } = "Member";
     public string Token { get; set; } = string.Empty;

@@ -202,7 +202,7 @@ spacesApi.MapPut("/{id:int}", async (int id, UpdateSpaceRequest req, ClaimsPrinc
 
     space.Name = req.Name?.Trim() ?? space.Name;
     space.Description = req.Description?.Trim() ?? space.Description;
-    // Free tier: spaces must always be public
+    // Free tier: visibility input is accepted but always forced to Public
     if (req.Visibility != null)
         space.Visibility = SpaceVisibility.Public;
     await db.SaveChangesAsync();
@@ -588,54 +588,11 @@ spacesApi.MapDelete("/{spaceId:int}/leave", async (int spaceId, ClaimsPrincipal 
 // Create invite(s) for a space (owner or admin member)
 spacesApi.MapPost("/{slug}/invitations", async (string slug, CreateInvitationsRequest req, ClaimsPrincipal user, AppDbContext db) =>
 {
+    // Free tier: invitations are not available; public spaces are open to all users
     return Results.Problem(
         title: "Not available",
         detail: "Invitations are not available on the free tier. Public spaces are open to all users.",
         statusCode: 403);
-#pragma warning disable CS0162
-    var space = await db.Spaces.FirstOrDefaultAsync(t => t.Slug == slug);
-    if (space is null) return Results.NotFound();
-    var userId = user.FindFirstValue(ClaimTypes.NameIdentifier) ?? user.FindFirstValue("sub");
-    if (userId is null) return Results.Unauthorized();
-    if (space.OwnerId != userId && !IsAdmin(user))
-    {
-        var callerMembership = await db.Memberships.FirstOrDefaultAsync(m => m.SpaceId == space.Id && m.UserId == userId);
-        if (callerMembership?.Role != SpaceMemberRole.Admin) return Results.Forbid();
-    }
-
-    if (req.Emails is null || req.Emails.Count == 0)
-        return Results.BadRequest("At least one email address is required.");
-
-    var created = new List<Invitation>();
-    foreach (var rawEmail in req.Emails)
-    {
-        var email = rawEmail?.Trim().ToLowerInvariant() ?? "";
-        if (string.IsNullOrWhiteSpace(email)) continue;
-
-        // Revoke any existing pending invite for this email in this space
-        var existing = await db.Invitations.Where(i => i.SpaceId == space.Id && i.Email == email && i.Status == InvitationStatus.Pending).ToListAsync();
-        foreach (var old in existing) old.Status = InvitationStatus.Revoked;
-
-        var token = GenerateSecureToken();
-
-        var invitation = new Invitation
-        {
-            SpaceId = space.Id,
-            Email = email,
-            Role = req.Role ?? "Member",
-            Token = token,
-            InvitedBy = userId,
-            ExpiresAt = DateTimeOffset.UtcNow.AddDays(7),
-        };
-        db.Invitations.Add(invitation);
-        created.Add(invitation);
-    }
-
-    await db.SaveChangesAsync();
-    return Results.Ok(created.Select(i => new {
-        i.Id, i.Email, i.Role, i.Token, i.Status, i.CreatedAt, i.ExpiresAt
-    }));
-#pragma warning restore CS0162
 }).RequireAuthorization();
 
 // List invitations for a space (owner or admin member)
@@ -711,8 +668,8 @@ invitationsApi.MapGet("/{token}", async (string token, AppDbContext db) =>
         invitation.Role,
         invitation.Status,
         invitation.ExpiresAt,
-        tenantName = invitation.Space.Name,
-        tenantSlug = invitation.Space.Slug,
+        spaceName = invitation.Space.Name,
+        spaceSlug = invitation.Space.Slug,
     });
 });
 
@@ -749,7 +706,7 @@ invitationsApi.MapPost("/{token}/accept", async (string token, ClaimsPrincipal u
         invitation.AcceptedAt = DateTimeOffset.UtcNow;
         invitation.AcceptedByUserId = userId;
         await db.SaveChangesAsync();
-        return Results.Ok(new { tenantName = space.Name, tenantSlug = space.Slug });
+        return Results.Ok(new { spaceName = space.Name, spaceSlug = space.Slug });
     }
 
     // Check if already a member
@@ -772,7 +729,7 @@ invitationsApi.MapPost("/{token}/accept", async (string token, ClaimsPrincipal u
     invitation.AcceptedByUserId = userId;
     await db.SaveChangesAsync();
 
-    return Results.Ok(new { tenantName = space.Name, tenantSlug = space.Slug });
+    return Results.Ok(new { spaceName = space.Name, spaceSlug = space.Slug });
 }).RequireAuthorization();
 var bookingsApi = app.MapGroup("/api/bookings").RequireAuthorization();
 
@@ -790,8 +747,8 @@ bookingsApi.MapGet("/", async (ClaimsPrincipal user, AppDbContext db) =>
             b.CreatedAt,
             resourceName = b.Resource.Name,
             resourceType = b.Resource.ResourceType,
-            tenantName = b.Resource.Space.Name,
-            tenantSlug = b.Resource.Space.Slug,
+            spaceName = b.Resource.Space.Name,
+            spaceSlug = b.Resource.Space.Slug,
         })
         .ToListAsync();
 });
@@ -865,8 +822,8 @@ bookingsApi.MapDelete("/{id:int}", async (int id, ClaimsPrincipal user, AppDbCon
     var userId = user.FindFirstValue(ClaimTypes.NameIdentifier) ?? user.FindFirstValue("sub")!;
     var booking = await db.Bookings.Include(b => b.Resource).ThenInclude(r => r.Space).FirstOrDefaultAsync(b => b.Id == id);
     if (booking is null) return Results.NotFound();
-    var isTenantOwner = booking.Resource.Space.OwnerId == userId;
-    if (booking.UserId != userId && !IsAdmin(user) && !isTenantOwner) return Results.Forbid();
+    var isSpaceOwner = booking.Resource.Space.OwnerId == userId;
+    if (booking.UserId != userId && !IsAdmin(user) && !isSpaceOwner) return Results.Forbid();
     db.Bookings.Remove(booking);
     await db.SaveChangesAsync();
     return Results.NoContent();
