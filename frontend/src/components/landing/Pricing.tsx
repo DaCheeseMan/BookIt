@@ -13,9 +13,10 @@ const TIERS = [
     annualPrice: 0,
     description: 'Perfect for small clubs and personal use.',
     features: [
+      '1 space',
       'Up to 3 resources',
-      '1 organisation',
-      '100 bookings/month',
+      'Public space only',
+      'Self-service bookings',
       'Community support',
     ],
     cta: 'Get started free',
@@ -28,8 +29,9 @@ const TIERS = [
     description: 'For growing organisations that need more.',
     features: [
       'Unlimited resources',
-      '5 organisations',
+      '5 spaces',
       'Unlimited bookings',
+      'Public & private spaces',
       'Email support',
       'Advanced analytics',
     ],
@@ -44,7 +46,7 @@ const TIERS = [
     description: 'For large organisations with advanced needs.',
     features: [
       'Everything in Pro',
-      'Unlimited organisations',
+      'Unlimited spaces',
       'Priority support',
       'Custom integrations',
       'SSO / SAML',

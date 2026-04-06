@@ -43,7 +43,7 @@ apiClient.interceptors.response.use(
   }
 );
 
-export interface Tenant {
+export interface Space {
   id: number;
   name: string;
   slug: string;
@@ -55,7 +55,7 @@ export interface Tenant {
 
 export interface Resource {
   id: number;
-  tenantId: number;
+  spaceId: number;
   name: string;
   description: string;
   resourceType: string;
@@ -67,7 +67,7 @@ export interface Resource {
 export interface Booking {
   id: number;
   resourceId: number;
-  tenantId: number;
+  spaceId: number;
   userId: string;
   userName: string;
   userFirstName: string;
@@ -79,8 +79,8 @@ export interface Booking {
   createdAt: string;
   resourceName: string;
   resourceType: string;
-  tenantName: string;
-  tenantSlug: string;
+  spaceName: string;
+  spaceSlug: string;
 }
 
 export interface ResourceBooking {
@@ -160,43 +160,43 @@ export interface UserSearchResult {
   email?: string;
 }
 
-export const tenantsApi = {
-  getAll: () => apiClient.get<Tenant[]>('/tenants').then(r => r.data),
-  getById: (idOrSlug: string | number) => apiClient.get<Tenant>(`/tenants/${idOrSlug}`).then(r => r.data),
-  create: (req: { name: string; slug: string; description?: string; visibility?: 'Public' | 'Private' }) =>
-    apiClient.post<Tenant>('/tenants', req).then(r => r.data),
-  update: (id: number, req: { name?: string; description?: string; visibility?: 'Public' | 'Private' }) =>
-    apiClient.put<Tenant>(`/tenants/${id}`, req).then(r => r.data),
-  delete: (id: number) => apiClient.delete(`/tenants/${id}`),
+export const spacesApi = {
+  getAll: () => apiClient.get<Space[]>('/spaces').then(r => r.data),
+  getById: (idOrSlug: string | number) => apiClient.get<Space>(`/spaces/${idOrSlug}`).then(r => r.data),
+  create: (req: { name: string; slug: string; description?: string }) =>
+    apiClient.post<Space>('/spaces', req).then(r => r.data),
+  update: (id: number, req: { name?: string; description?: string }) =>
+    apiClient.put<Space>(`/spaces/${id}`, req).then(r => r.data),
+  delete: (id: number) => apiClient.delete(`/spaces/${id}`),
 };
 
 export const membersApi = {
-  getAll: (tenantId: number) => apiClient.get<Member[]>(`/tenants/${tenantId}/members`).then(r => r.data),
-  searchByEmail: (tenantId: number, email: string) =>
-    apiClient.get<UserSearchResult>(`/tenants/${tenantId}/members/search`, { params: { email } }).then(r => r.data),
-  add: (tenantId: number, req: AddMemberRequest) =>
-    apiClient.post<Member>(`/tenants/${tenantId}/members`, req).then(r => r.data),
-  remove: (tenantId: number, userId: string) =>
-    apiClient.delete(`/tenants/${tenantId}/members/${userId}`),
-  join: (tenantId: number) =>
-    apiClient.post<Member>(`/tenants/${tenantId}/join`).then(r => r.data),
-  leave: (tenantId: number) =>
-    apiClient.delete(`/tenants/${tenantId}/leave`),
+  getAll: (spaceId: number) => apiClient.get<Member[]>(`/spaces/${spaceId}/members`).then(r => r.data),
+  searchByEmail: (spaceId: number, email: string) =>
+    apiClient.get<UserSearchResult>(`/spaces/${spaceId}/members/search`, { params: { email } }).then(r => r.data),
+  add: (spaceId: number, req: AddMemberRequest) =>
+    apiClient.post<Member>(`/spaces/${spaceId}/members`, req).then(r => r.data),
+  remove: (spaceId: number, userId: string) =>
+    apiClient.delete(`/spaces/${spaceId}/members/${userId}`),
+  join: (spaceId: number) =>
+    apiClient.post<Member>(`/spaces/${spaceId}/join`).then(r => r.data),
+  leave: (spaceId: number) =>
+    apiClient.delete(`/spaces/${spaceId}/leave`),
 };
 
 export const resourcesApi = {
-  getAll: (tenantId: number) =>
-    apiClient.get<Resource[]>(`/tenants/${tenantId}/resources`).then(r => r.data),
-  getById: (tenantId: number, resourceId: number) =>
-    apiClient.get<Resource>(`/tenants/${tenantId}/resources/${resourceId}`).then(r => r.data),
-  create: (tenantId: number, req: { name: string; description?: string; resourceType: string; slotDurationMinutes: number; maxAdvanceDays: number }) =>
-    apiClient.post<Resource>(`/tenants/${tenantId}/resources`, req).then(r => r.data),
-  update: (tenantId: number, resourceId: number, req: Partial<Resource>) =>
-    apiClient.put<Resource>(`/tenants/${tenantId}/resources/${resourceId}`, req).then(r => r.data),
-  delete: (tenantId: number, resourceId: number) =>
-    apiClient.delete(`/tenants/${tenantId}/resources/${resourceId}`),
-  getBookings: (tenantId: number, resourceId: number, from: string, to: string) =>
-    apiClient.get<ResourceBooking[]>(`/tenants/${tenantId}/resources/${resourceId}/bookings`, { params: { from, to } }).then(r => r.data),
+  getAll: (spaceId: number) =>
+    apiClient.get<Resource[]>(`/spaces/${spaceId}/resources`).then(r => r.data),
+  getById: (spaceId: number, resourceId: number) =>
+    apiClient.get<Resource>(`/spaces/${spaceId}/resources/${resourceId}`).then(r => r.data),
+  create: (spaceId: number, req: { name: string; description?: string; resourceType: string; slotDurationMinutes: number; maxAdvanceDays: number }) =>
+    apiClient.post<Resource>(`/spaces/${spaceId}/resources`, req).then(r => r.data),
+  update: (spaceId: number, resourceId: number, req: Partial<Resource>) =>
+    apiClient.put<Resource>(`/spaces/${spaceId}/resources/${resourceId}`, req).then(r => r.data),
+  delete: (spaceId: number, resourceId: number) =>
+    apiClient.delete(`/spaces/${spaceId}/resources/${resourceId}`),
+  getBookings: (spaceId: number, resourceId: number, from: string, to: string) =>
+    apiClient.get<ResourceBooking[]>(`/spaces/${spaceId}/resources/${resourceId}/bookings`, { params: { from, to } }).then(r => r.data),
 };
 
 export const bookingsApi = {
@@ -251,8 +251,8 @@ export interface InviteDetails {
   role: string;
   status: 'Pending' | 'Accepted' | 'Expired' | 'Revoked';
   expiresAt: string;
-  tenantName: string;
-  tenantSlug: string;
+  spaceName: string;
+  spaceSlug: string;
 }
 
 export const keycloakAccountApi = {
@@ -267,14 +267,13 @@ export const keycloakAccountApi = {
 
 export const invitationsApi = {
   create: (slug: string, emails: string[], role?: string) =>
-    apiClient.post<Invitation[]>(`/tenants/${slug}/invitations`, { emails, role }).then(r => r.data),
+    apiClient.post<Invitation[]>(`/spaces/${slug}/invitations`, { emails, role }).then(r => r.data),
   getAll: (slug: string) =>
-    apiClient.get<Invitation[]>(`/tenants/${slug}/invitations`).then(r => r.data),
+    apiClient.get<Invitation[]>(`/spaces/${slug}/invitations`).then(r => r.data),
   revoke: (slug: string, invitationId: string) =>
-    apiClient.delete(`/tenants/${slug}/invitations/${invitationId}`),
+    apiClient.delete(`/spaces/${slug}/invitations/${invitationId}`),
   getDetails: (token: string) =>
     apiClient.get<InviteDetails>(`/invitations/${token}`).then(r => r.data),
   accept: (token: string) =>
-    apiClient.post<{ tenantName: string; tenantSlug: string }>(`/invitations/${token}/accept`).then(r => r.data),
+    apiClient.post<{ spaceName: string; spaceSlug: string }>(`/invitations/${token}/accept`).then(r => r.data),
 };
-

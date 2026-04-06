@@ -27,7 +27,7 @@ export function Navbar() {
           <Link to="/" className={linkClass(location.pathname === '/')}>Home</Link>
           {auth.isAuthenticated && (
             <>
-              <Link to="/tenants" className={linkClass(location.pathname.startsWith('/tenants'))}>Spaces</Link>
+          <Link to="/spaces" className={linkClass(location.pathname.startsWith('/spaces'))}>Spaces</Link>
               <Link to="/my-bookings" className={linkClass(location.pathname === '/my-bookings')}>My Bookings</Link>
               <Link to="/profile" className={linkClass(location.pathname === '/profile')}>Profile</Link>
               {isAdmin && (
@@ -66,7 +66,7 @@ export function Navbar() {
           <Link to="/" className={`block ${linkClass(location.pathname === '/')}`} onClick={closeMenu}>Home</Link>
           {auth.isAuthenticated && (
             <>
-              <Link to="/tenants" className={`block ${linkClass(location.pathname.startsWith('/tenants'))}`} onClick={closeMenu}>Spaces</Link>
+              <Link to="/spaces" className={`block ${linkClass(location.pathname.startsWith('/spaces'))}`} onClick={closeMenu}>Spaces</Link>
               <Link to="/my-bookings" className={`block ${linkClass(location.pathname === '/my-bookings')}`} onClick={closeMenu}>My Bookings</Link>
               <Link to="/profile" className={`block ${linkClass(location.pathname === '/profile')}`} onClick={closeMenu}>Profile</Link>
               {isAdmin && (

@@ -45,10 +45,10 @@ function App() {
       <main>
         <Routes>
           <Route path="/" element={<LandingPage />} />
-          <Route path="/tenants" element={<ProtectedRoute><TenantsPage /></ProtectedRoute>} />
-          <Route path="/tenants/:slug" element={<ProtectedRoute><TenantPage /></ProtectedRoute>} />
-          <Route path="/tenants/:slug/resources/:resourceId" element={<ProtectedRoute><WeeklyCalendarPage /></ProtectedRoute>} />
-          <Route path="/tenants/:slug/settings" element={<ProtectedRoute><TenantSettingsPage /></ProtectedRoute>} />
+          <Route path="/spaces" element={<ProtectedRoute><TenantsPage /></ProtectedRoute>} />
+          <Route path="/spaces/:slug" element={<ProtectedRoute><TenantPage /></ProtectedRoute>} />
+          <Route path="/spaces/:slug/resources/:resourceId" element={<ProtectedRoute><WeeklyCalendarPage /></ProtectedRoute>} />
+          <Route path="/spaces/:slug/settings" element={<ProtectedRoute><TenantSettingsPage /></ProtectedRoute>} />
           <Route path="/my-bookings" element={<ProtectedRoute><MyBookingsPage /></ProtectedRoute>} />
           <Route path="/profile" element={<ProtectedRoute><ProfilePage /></ProtectedRoute>} />
           <Route path="/admin/users" element={<ProtectedRoute><AdminUsersPage /></ProtectedRoute>} />

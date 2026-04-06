@@ -109,19 +109,6 @@ static bool IsAdmin(ClaimsPrincipal user)
     return false;
 }
 
-static bool IsSpaceAdmin(ClaimsPrincipal user)
-{
-    var raw = user.FindFirstValue("realm_access");
-    if (raw is null) return false;
-    try
-    {
-        var doc = System.Text.Json.JsonDocument.Parse(raw);
-        if (doc.RootElement.TryGetProperty("roles", out var roles))
-            return roles.EnumerateArray().Any(r => r.GetString() is "tenant-admin" or "admin");
-    }
-    catch { }
-    return false;
-}
 
 // --- Config endpoint ---
 app.MapGet("/api/config", (IConfiguration config, IWebHostEnvironment env) =>

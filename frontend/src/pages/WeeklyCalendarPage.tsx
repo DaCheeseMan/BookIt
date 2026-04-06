@@ -1,7 +1,7 @@
 import React, { useEffect, useState, useCallback } from 'react';
 import { useNavigate, useParams } from 'react-router-dom';
 import { useAuth } from 'react-oidc-context';
-import { bookingsApi, resourcesApi, tenantsApi, getUserRoles, setAuthToken, type Resource, type ResourceBooking } from '../api/client';
+import { bookingsApi, resourcesApi, spacesApi, getUserRoles, setAuthToken, type Space, type Resource, type ResourceBooking } from '../api/client';
 import { ConfirmDialog } from '../components/ConfirmDialog';
 
 const DAY_NAMES = ['Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat', 'Sun'];
@@ -148,10 +148,10 @@ export function WeeklyCalendarPage() {
   useEffect(() => {
     if (auth.user?.access_token) setAuthToken(auth.user.access_token);
     if (!slug || !resourceId) return;
-    tenantsApi.getById(slug).then(t => {
+    spacesApi.getById(slug).then((t: Space) => {
       setTenantId(t.id);
       return resourcesApi.getById(t.id, Number(resourceId));
-    }).then(r => {
+    }).then((r: Resource) => {
       setResource(r);
     }).catch((err: unknown) => {
       const axiosErr = err as { response?: { status?: number } };
