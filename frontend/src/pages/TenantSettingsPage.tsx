@@ -1,7 +1,7 @@
 import { useEffect, useState } from 'react';
 import { useNavigate, useParams } from 'react-router-dom';
 import { useAuth } from 'react-oidc-context';
-import { tenantsApi, resourcesApi, membersApi, invitationsApi, type Tenant, type Resource, type Member, type UserSearchResult, type Invitation } from '../api/client';
+import { spacesApi, resourcesApi, membersApi, type Space, type Resource, type Member } from '../api/client';
 import { ConfirmDialog } from '../components/ConfirmDialog';
 
 const RESOURCE_TYPES = ['Court', 'Sauna', 'Meeting room', 'Restaurant', 'Boat', 'Car', 'Gym', 'Pool', 'Other'];
@@ -13,22 +13,22 @@ const SLOT_DURATIONS = [
   { label: 'Full day (8h)', value: 480 },
 ];
 
+const FREE_TIER_RESOURCE_LIMIT = 3;
+
 export function TenantSettingsPage() {
   const { slug } = useParams<{ slug: string }>();
   const navigate = useNavigate();
   const auth = useAuth();
 
-  const [tenant, setTenant] = useState<Tenant | null>(null);
+  const [space, setSpace] = useState<Space | null>(null);
   const [resources, setResources] = useState<Resource[]>([]);
   const [members, setMembers] = useState<Member[]>([]);
-  const [invites, setInvites] = useState<Invitation[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
 
-  // Edit tenant form
+  // Edit space form
   const [editName, setEditName] = useState('');
   const [editDesc, setEditDesc] = useState('');
-  const [editVisibility, setEditVisibility] = useState<'Public' | 'Private'>('Public');
   const [savingTenant, setSavingTenant] = useState(false);
   const [tenantSaved, setTenantSaved] = useState(false);
 
@@ -42,44 +42,25 @@ export function TenantSettingsPage() {
   const [creatingRes, setCreatingRes] = useState(false);
   const [resError, setResError] = useState<string | null>(null);
 
-  // Member management — multi-step invite flow
-  const [inviteEmail, setInviteEmail] = useState('');
-  const [inviteStep, setInviteStep] = useState<'idle' | 'searching' | 'found' | 'not-found' | 'granting' | 'creating'>('idle');
-  const [foundUser, setFoundUser] = useState<UserSearchResult | null>(null);
-  const [newFirstName, setNewFirstName] = useState('');
-  const [newLastName, setNewLastName] = useState('');
-  const [inviteRole, setInviteRole] = useState<'Member' | 'Admin'>('Member');
-  const [memberError, setMemberError] = useState<string | null>(null);
+  // Member management
   const [removingMemberId, setRemovingMemberId] = useState<string | null>(null);
   const [confirmRemoveMember, setConfirmRemoveMember] = useState<Member | null>(null);
-
-  // Invite link state
-  const [inviteLinkEmail, setInviteLinkEmail] = useState('');
-  const [inviteLinkRole, setInviteLinkRole] = useState<'Member' | 'Admin'>('Member');
-  const [sendingInviteLink, setSendingInviteLink] = useState(false);
-  const [inviteLinkError, setInviteLinkError] = useState<string | null>(null);
-  const [inviteLinkSuccess, setInviteLinkSuccess] = useState(false);
-  const [revokingInviteId, setRevokingInviteId] = useState<string | null>(null);
-  const [copiedTokenId, setCopiedTokenId] = useState<string | null>(null);
-  const [inviteListError, setInviteListError] = useState<string | null>(null);
 
   const myUserId = auth.user?.profile.sub;
 
   async function loadData() {
     if (!slug) return;
     try {
-      const t = await tenantsApi.getById(slug);
-      setTenant(t);
-      setEditName(t.name);
-      setEditDesc(t.description);
-      setEditVisibility(t.visibility ?? 'Public');
+      const s = await spacesApi.getById(slug);
+      setSpace(s);
+      setEditName(s.name);
+      setEditDesc(s.description);
       const [res, mems] = await Promise.all([
-        resourcesApi.getAll(t.id),
-        membersApi.getAll(t.id).catch(() => [] as Member[]),
+        resourcesApi.getAll(s.id),
+        membersApi.getAll(s.id).catch(() => [] as Member[]),
       ]);
       setResources(res);
       setMembers(mems);
-      invitationsApi.getAll(t.slug).then(setInvites).catch(() => setInviteListError('Could not load invitations.'));
     } catch {
       setError('Space not found or access denied.');
     } finally {
@@ -90,17 +71,17 @@ export function TenantSettingsPage() {
   useEffect(() => { loadData(); }, [slug]); // eslint-disable-line react-hooks/exhaustive-deps
 
   useEffect(() => {
-    if (!loading && tenant && tenant.ownerId !== myUserId) {
-      navigate(`/tenants/${slug}`);
+    if (!loading && space && space.ownerId !== myUserId) {
+      navigate(`/spaces/${slug}`);
     }
-  }, [loading, tenant, myUserId, slug, navigate]);
+  }, [loading, space, myUserId, slug, navigate]);
 
-  async function handleSaveTenant(e: React.FormEvent) {
+  async function handleSaveSpace(e: React.FormEvent) {
     e.preventDefault();
-    if (!tenant) return;
+    if (!space) return;
     setSavingTenant(true);
     try {
-      await tenantsApi.update(tenant.id, { name: editName.trim(), description: editDesc.trim(), visibility: editVisibility });
+      await spacesApi.update(space.id, { name: editName.trim(), description: editDesc.trim() });
       setTenantSaved(true);
       setTimeout(() => setTenantSaved(false), 3000);
       await loadData();
@@ -111,81 +92,12 @@ export function TenantSettingsPage() {
     }
   }
 
-  function resetInvite() {
-    setInviteStep('idle');
-    setInviteEmail('');
-    setFoundUser(null);
-    setNewFirstName('');
-    setNewLastName('');
-    setInviteRole('Member');
-    setMemberError(null);
-  }
-
-  async function handleFindUser(e: React.FormEvent) {
-    e.preventDefault();
-    if (!tenant || !inviteEmail.trim()) return;
-    setMemberError(null);
-    setInviteStep('searching');
-    try {
-      const u = await membersApi.searchByEmail(tenant.id, inviteEmail.trim());
-      setFoundUser(u);
-      setInviteStep('found');
-    } catch (err: unknown) {
-      const axiosErr = err as { response?: { status?: number } };
-      if (axiosErr?.response?.status === 404) {
-        setInviteStep('not-found');
-      } else {
-        setMemberError('Could not search for user.');
-        setInviteStep('idle');
-      }
-    }
-  }
-
-  async function handleGrantAccess() {
-    if (!tenant || !foundUser) return;
-    setMemberError(null);
-    setInviteStep('granting');
-    try {
-      await membersApi.add(tenant.id, { userId: foundUser.id, role: inviteRole });
-      resetInvite();
-      await loadData();
-    } catch (err: unknown) {
-      const axiosErr = err as { response?: { status?: number } };
-      if (axiosErr?.response?.status === 409) setMemberError('User is already a member.');
-      else setMemberError('Could not add member.');
-      setInviteStep('found');
-    }
-  }
-
-  async function handleCreateAndInvite(e: React.FormEvent) {
-    e.preventDefault();
-    if (!tenant || !inviteEmail.trim() || !newFirstName.trim() || !newLastName.trim()) return;
-    setMemberError(null);
-    setInviteStep('creating');
-    try {
-      await membersApi.add(tenant.id, {
-        email: inviteEmail.trim(),
-        firstName: newFirstName.trim(),
-        lastName: newLastName.trim(),
-        role: inviteRole,
-        create: true,
-      });
-      resetInvite();
-      await loadData();
-    } catch (err: unknown) {
-      const axiosErr = err as { response?: { status?: number } };
-      if (axiosErr?.response?.status === 409) setMemberError('User is already a member.');
-      else setMemberError('Could not create user.');
-      setInviteStep('not-found');
-    }
-  }
-
   async function handleRemoveMember(userId: string) {
-    if (!tenant) return;
+    if (!space) return;
     setRemovingMemberId(userId);
     setConfirmRemoveMember(null);
     try {
-      await membersApi.remove(tenant.id, userId);
+      await membersApi.remove(space.id, userId);
       await loadData();
     } catch {
       setError('Could not remove member.');
@@ -194,68 +106,13 @@ export function TenantSettingsPage() {
     }
   }
 
-  async function handleSendInviteLink(e: React.FormEvent) {
-    e.preventDefault();
-    if (!tenant || !inviteLinkEmail.trim()) return;
-
-    // Validate each email address
-    const emails = inviteLinkEmail.split(',').map(s => s.trim()).filter(Boolean);
-    const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
-    const invalid = emails.filter(em => !emailRegex.test(em));
-    if (invalid.length > 0) {
-      setInviteLinkError(`Invalid email address${invalid.length > 1 ? 'es' : ''}: ${invalid.join(', ')}`);
-      return;
-    }
-
-    setSendingInviteLink(true);
-    setInviteLinkError(null);
-    setInviteLinkSuccess(false);
-    try {
-      const newInvites = await invitationsApi.create(tenant.slug, emails, inviteLinkRole);
-      setInviteLinkEmail('');
-      setInviteLinkSuccess(true);
-      setTimeout(() => setInviteLinkSuccess(false), 4000);
-      // Update local state with newly created invites; refresh full list for accuracy
-      setInvites(prev => {
-        const updatedIds = new Set(newInvites.map(i => i.id));
-        return [...newInvites, ...prev.filter(i => !updatedIds.has(i.id))];
-      });
-      invitationsApi.getAll(tenant.slug).then(setInvites).catch(() => {});
-    } catch {
-      setInviteLinkError('Could not create invite link.');
-    } finally {
-      setSendingInviteLink(false);
-    }
-  }
-
-  async function handleRevokeInvite(inviteId: string) {
-    if (!tenant) return;
-    setRevokingInviteId(inviteId);
-    try {
-      await invitationsApi.revoke(tenant.slug, inviteId);
-      setInvites(prev => prev.map(i => i.id === inviteId ? { ...i, status: 'Revoked' as const } : i));
-    } catch {
-      setError('Could not revoke invite.');
-    } finally {
-      setRevokingInviteId(null);
-    }
-  }
-
-  function handleCopyInviteLink(token: string, inviteId: string) {
-    const url = `${window.location.origin}/invite/${token}`;
-    navigator.clipboard.writeText(url).then(() => {
-      setCopiedTokenId(inviteId);
-      setTimeout(() => setCopiedTokenId(null), 2000);
-    }).catch(() => {});
-  }
-
   async function handleAddResource(e: React.FormEvent) {
     e.preventDefault();
-    if (!tenant) return;
+    if (!space) return;
     setResError(null);
     setCreatingRes(true);
     try {
-      await resourcesApi.create(tenant.id, {
+      await resourcesApi.create(space.id, {
         name: resName.trim(),
         description: resDesc.trim() || undefined,
         resourceType: resType,
@@ -273,10 +130,10 @@ export function TenantSettingsPage() {
   }
 
   async function handleDeleteResource(resourceId: number) {
-    if (!tenant) return;
+    if (!space) return;
     if (!confirm('Delete this resource? All bookings will be lost.')) return;
     try {
-      await resourcesApi.delete(tenant.id, resourceId);
+      await resourcesApi.delete(space.id, resourceId);
       await loadData();
     } catch {
       setError('Could not delete resource.');
@@ -284,21 +141,23 @@ export function TenantSettingsPage() {
   }
 
   if (loading) return <div className="text-center py-12 text-slate-500">Loading settings…</div>;
-  if (error || !tenant) return <div className="bg-red-50 border border-red-200 text-red-700 rounded-xl px-4 py-3 text-sm mb-4">⚠️ {error ?? 'Not found.'}</div>;
+  if (error || !space) return <div className="bg-red-50 border border-red-200 text-red-700 rounded-xl px-4 py-3 text-sm mb-4">⚠️ {error ?? 'Not found.'}</div>;
+
+  const atResourceLimit = resources.length >= FREE_TIER_RESOURCE_LIMIT;
 
   return (
     <div className="max-w-4xl mx-auto px-4 sm:px-6 lg:px-8 py-8">
       <div className="mb-6">
         <div>
-          <button className="bg-transparent border-none text-indigo-600 cursor-pointer text-sm p-0 mb-2 block hover:underline" onClick={() => navigate(`/tenants/${slug}`)}>← Back to space</button>
-          <h1 className="text-2xl font-bold text-slate-900">Settings — {tenant.name}</h1>
+          <button className="bg-transparent border-none text-indigo-600 cursor-pointer text-sm p-0 mb-2 block hover:underline" onClick={() => navigate(`/spaces/${slug}`)}>← Back to space</button>
+          <h1 className="text-2xl font-bold text-slate-900">Settings — {space.name}</h1>
         </div>
       </div>
 
-      {/* Edit tenant */}
+      {/* Edit space */}
       <section className="bg-white rounded-2xl shadow-sm border border-slate-200/60 p-6 mb-5">
         <h2 className="text-lg font-bold text-slate-800 mb-5">Space details</h2>
-        <form className="flex flex-col" onSubmit={handleSaveTenant} noValidate>
+        <form className="flex flex-col" onSubmit={handleSaveSpace} noValidate>
           {tenantSaved && <div className="bg-emerald-50 border border-emerald-200 text-emerald-700 rounded-xl px-4 py-3 text-sm mb-4">✅ Saved!</div>}
           <div className="mb-4">
             <label className="block text-sm font-semibold text-slate-700 mb-1.5" htmlFor="edit-name">Name</label>
@@ -307,21 +166,6 @@ export function TenantSettingsPage() {
           <div className="mb-4">
             <label className="block text-sm font-semibold text-slate-700 mb-1.5" htmlFor="edit-desc">Description</label>
             <textarea className="w-full px-3.5 py-2.5 rounded-xl border border-slate-300 text-sm focus:outline-none focus:ring-2 focus:ring-indigo-600 focus:border-indigo-600 transition-colors font-[inherit] bg-white" id="edit-desc" value={editDesc} onChange={e => setEditDesc(e.target.value)} rows={3} />
-          </div>
-          <div className="mb-4">
-            <label className="block text-sm font-semibold text-slate-700 mb-2">Visibility</label>
-            <div className="flex gap-3 flex-wrap">
-              <label className={`flex items-center gap-2 px-4 py-2.5 rounded-xl border cursor-pointer transition-colors ${editVisibility === 'Public' ? 'border-indigo-600 bg-indigo-50 text-indigo-700' : 'border-slate-300 text-slate-600 hover:bg-slate-50'}`}>
-                <input type="radio" name="edit-visibility" value="Public" checked={editVisibility === 'Public'} onChange={() => setEditVisibility('Public')} className="sr-only" />
-                🌐 <span className="text-sm font-semibold">Public</span>
-                <span className="text-xs text-slate-500 hidden sm:inline">— anyone can browse and book</span>
-              </label>
-              <label className={`flex items-center gap-2 px-4 py-2.5 rounded-xl border cursor-pointer transition-colors ${editVisibility === 'Private' ? 'border-indigo-600 bg-indigo-50 text-indigo-700' : 'border-slate-300 text-slate-600 hover:bg-slate-50'}`}>
-                <input type="radio" name="edit-visibility" value="Private" checked={editVisibility === 'Private'} onChange={() => setEditVisibility('Private')} className="sr-only" />
-                🔒 <span className="text-sm font-semibold">Private</span>
-                <span className="text-xs text-slate-500 hidden sm:inline">— members only</span>
-              </label>
-            </div>
           </div>
           <button type="submit" className="bg-indigo-600 hover:bg-indigo-700 text-white font-semibold px-5 py-2.5 rounded-xl transition-colors cursor-pointer disabled:opacity-50 disabled:cursor-not-allowed min-h-[44px]" disabled={savingTenant || !editName.trim()}>
             {savingTenant ? 'Saving…' : 'Save changes'}
@@ -332,11 +176,20 @@ export function TenantSettingsPage() {
       {/* Resources */}
       <section className="bg-white rounded-2xl shadow-sm border border-slate-200/60 p-6 mb-5">
         <div className="flex items-center justify-between gap-4 mb-5 flex-wrap max-md:flex-col max-md:items-start">
-          <h2 className="text-lg font-bold text-slate-800">Resources ({resources.length})</h2>
+          <h2 className="text-lg font-bold text-slate-800">Resources ({resources.length}/3)</h2>
           {!showAddResource && (
-            <button className="bg-indigo-600 hover:bg-indigo-700 text-white font-semibold px-3.5 py-1.5 text-sm min-h-[36px] rounded-xl transition-colors cursor-pointer disabled:opacity-50 disabled:cursor-not-allowed" onClick={() => setShowAddResource(true)}>
-              + Add resource
-            </button>
+            <div className="flex flex-col items-end gap-1 max-md:items-start max-md:w-full">
+              {atResourceLimit && (
+                <p className="text-xs text-amber-600 font-medium">Free tier allows up to 3 resources.</p>
+              )}
+              <button
+                className="bg-indigo-600 hover:bg-indigo-700 text-white font-semibold px-3.5 py-1.5 text-sm min-h-[36px] rounded-xl transition-colors cursor-pointer disabled:opacity-50 disabled:cursor-not-allowed max-md:w-full"
+                onClick={() => setShowAddResource(true)}
+                disabled={atResourceLimit}
+              >
+                + Add resource
+              </button>
+            </div>
           )}
         </div>
 
@@ -407,132 +260,11 @@ export function TenantSettingsPage() {
       </section>
 
       {/* Members */}
-      {tenant.visibility === 'Private' ? (
-      <>
       <section className="bg-white rounded-2xl shadow-sm border border-slate-200/60 p-6 mb-5">
         <h2 className="text-lg font-bold text-slate-800 mb-5">Members ({members.length})</h2>
 
-        {/* Invite flow */}
-        {(inviteStep === 'idle' || inviteStep === 'searching') && (
-          <form className="flex gap-3 mb-5 flex-wrap" onSubmit={handleFindUser} noValidate>
-            <input
-              type="email"
-              className="flex-1 min-w-0 px-3.5 py-2.5 rounded-xl border border-slate-300 text-sm focus:outline-none focus:ring-2 focus:ring-indigo-600 focus:border-indigo-600 transition-colors font-[inherit] bg-white"
-              placeholder="Find user by email address"
-              value={inviteEmail}
-              onChange={e => { setInviteEmail(e.target.value); setMemberError(null); }}
-              disabled={inviteStep === 'searching'}
-            />
-            <button
-              type="submit"
-              className="bg-indigo-600 hover:bg-indigo-700 text-white font-semibold px-4 py-2.5 rounded-xl transition-colors cursor-pointer disabled:opacity-50 disabled:cursor-not-allowed min-h-[44px] max-md:w-full"
-              disabled={inviteStep === 'searching' || !inviteEmail.trim()}
-            >
-              {inviteStep === 'searching' ? 'Searching…' : 'Find User →'}
-            </button>
-          </form>
-        )}
-
-        {(inviteStep === 'found' || inviteStep === 'granting') && (
-          <div className="mb-5 p-4 bg-emerald-50 border border-emerald-200 rounded-xl">
-            <p className="text-xs font-semibold text-emerald-700 uppercase tracking-wide mb-3">✓ User found in Keycloak</p>
-            <div className="flex items-center gap-2.5 mb-4">
-              <div className="w-9 h-9 rounded-full bg-indigo-100 text-indigo-700 flex items-center justify-center text-sm font-bold shrink-0">
-                {(foundUser?.firstName?.[0] ?? foundUser?.email?.[0] ?? '?').toUpperCase()}
-              </div>
-              <div>
-                <p className="text-sm font-semibold text-slate-800">
-                  {[foundUser?.firstName, foundUser?.lastName].filter(Boolean).join(' ') || foundUser?.email}
-                </p>
-                <p className="text-xs text-slate-500">{foundUser?.email}</p>
-              </div>
-            </div>
-            <p className="text-xs font-semibold text-slate-600 mb-2">Role</p>
-            <div className="flex gap-2 flex-wrap mb-4">
-              {(['Member', 'Admin'] as const).map(r => (
-                <label key={r} className={`flex items-center gap-2 px-3 py-2 rounded-xl border cursor-pointer text-sm font-semibold transition-colors ${inviteRole === r ? 'border-indigo-600 bg-indigo-50 text-indigo-700' : 'border-slate-300 text-slate-600 hover:bg-slate-50'}`}>
-                  <input type="radio" name="grant-role" value={r} checked={inviteRole === r} onChange={() => setInviteRole(r)} className="sr-only" />
-                  {r}
-                </label>
-              ))}
-            </div>
-            <div className="flex gap-2 flex-wrap">
-              <button
-                className="bg-indigo-600 hover:bg-indigo-700 text-white font-semibold px-4 py-2 rounded-xl text-sm transition-colors cursor-pointer disabled:opacity-50 min-h-[44px] max-md:w-full"
-                disabled={inviteStep === 'granting'}
-                onClick={handleGrantAccess}
-              >
-                {inviteStep === 'granting' ? 'Granting…' : 'Grant Access'}
-              </button>
-              <button
-                type="button"
-                className="text-slate-600 hover:text-slate-900 font-semibold px-4 py-2 rounded-xl text-sm border border-slate-300 hover:bg-slate-50 transition-colors cursor-pointer min-h-[44px] max-md:w-full"
-                onClick={resetInvite}
-              >
-                Cancel
-              </button>
-            </div>
-          </div>
-        )}
-
-        {(inviteStep === 'not-found' || inviteStep === 'creating') && (
-          <div className="mb-5 p-4 bg-amber-50 border border-amber-200 rounded-xl">
-            <p className="text-sm font-semibold text-amber-800 mb-1">No account found for <span className="font-mono text-xs">{inviteEmail}</span></p>
-            <p className="text-xs text-slate-500 mb-4">Create a new Keycloak account. They'll receive an email to set their password.</p>
-            <form onSubmit={handleCreateAndInvite} noValidate>
-              <div className="flex gap-2 flex-wrap mb-3">
-                <input
-                  type="text"
-                  className="flex-1 min-w-[120px] px-3.5 py-2 rounded-xl border border-slate-300 text-sm focus:outline-none focus:ring-2 focus:ring-indigo-600 transition-colors font-[inherit] bg-white"
-                  placeholder="First name"
-                  value={newFirstName}
-                  onChange={e => setNewFirstName(e.target.value)}
-                  required
-                  disabled={inviteStep === 'creating'}
-                />
-                <input
-                  type="text"
-                  className="flex-1 min-w-[120px] px-3.5 py-2 rounded-xl border border-slate-300 text-sm focus:outline-none focus:ring-2 focus:ring-indigo-600 transition-colors font-[inherit] bg-white"
-                  placeholder="Last name"
-                  value={newLastName}
-                  onChange={e => setNewLastName(e.target.value)}
-                  required
-                  disabled={inviteStep === 'creating'}
-                />
-              </div>
-              <p className="text-xs font-semibold text-slate-600 mb-2">Role</p>
-              <div className="flex gap-2 flex-wrap mb-4">
-                {(['Member', 'Admin'] as const).map(r => (
-                  <label key={r} className={`flex items-center gap-2 px-3 py-2 rounded-xl border cursor-pointer text-sm font-semibold transition-colors ${inviteRole === r ? 'border-indigo-600 bg-indigo-50 text-indigo-700' : 'border-slate-300 text-slate-600 hover:bg-slate-50'}`}>
-                    <input type="radio" name="create-role" value={r} checked={inviteRole === r} onChange={() => setInviteRole(r)} className="sr-only" />
-                    {r}
-                  </label>
-                ))}
-              </div>
-              <div className="flex gap-2 flex-wrap">
-                <button
-                  type="submit"
-                  className="bg-indigo-600 hover:bg-indigo-700 text-white font-semibold px-4 py-2 rounded-xl text-sm transition-colors cursor-pointer disabled:opacity-50 min-h-[44px] max-md:w-full"
-                  disabled={inviteStep === 'creating' || !newFirstName.trim() || !newLastName.trim()}
-                >
-                  {inviteStep === 'creating' ? 'Creating…' : 'Create & Invite'}
-                </button>
-                <button
-                  type="button"
-                  className="text-slate-600 hover:text-slate-900 font-semibold px-4 py-2 rounded-xl text-sm border border-slate-300 hover:bg-slate-50 transition-colors cursor-pointer min-h-[44px] max-md:w-full"
-                  onClick={resetInvite}
-                >
-                  Cancel
-                </button>
-              </div>
-            </form>
-          </div>
-        )}
-
-        {memberError && <div className="bg-red-50 border border-red-200 text-red-700 rounded-xl px-4 py-3 text-sm mb-4">⚠️ {memberError}</div>}
-
         {members.length === 0 ? (
-          <p className="text-sm text-slate-400">No members yet. Add members above to give them access.</p>
+          <p className="text-sm text-slate-400">No members yet.</p>
         ) : (
           <div className="flex flex-col gap-2">
             {members.map(m => {
@@ -564,98 +296,6 @@ export function TenantSettingsPage() {
           </div>
         )}
       </section>
-
-      {/* Invite links */}
-      <section className="bg-white rounded-2xl shadow-sm border border-slate-200/60 p-6 mb-5">
-        <h2 className="text-lg font-bold text-slate-800 mb-1">Invite links</h2>
-        <p className="text-sm text-slate-500 mb-5">Generate a time-limited link (7 days) to share with users. Anyone with the link can join as a member.</p>
-
-        <form className="flex flex-col gap-3 mb-5" onSubmit={handleSendInviteLink} noValidate>
-          {inviteLinkSuccess && <div className="bg-emerald-50 border border-emerald-200 text-emerald-700 rounded-xl px-4 py-3 text-sm">✅ Invite link created! Copy it from the list below.</div>}
-          {inviteLinkError && <div className="bg-red-50 border border-red-200 text-red-700 rounded-xl px-4 py-3 text-sm">⚠️ {inviteLinkError}</div>}
-          <div className="flex gap-3 flex-wrap">
-            <input
-              type="text"
-              className="flex-1 min-w-0 px-3.5 py-2.5 rounded-xl border border-slate-300 text-sm focus:outline-none focus:ring-2 focus:ring-indigo-600 focus:border-indigo-600 transition-colors font-[inherit] bg-white"
-              placeholder="email@example.com (comma-separate multiple)"
-              value={inviteLinkEmail}
-              onChange={e => { setInviteLinkEmail(e.target.value); setInviteLinkError(null); }}
-              disabled={sendingInviteLink}
-            />
-            <button
-              type="submit"
-              className="bg-indigo-600 hover:bg-indigo-700 text-white font-semibold px-4 py-2.5 rounded-xl transition-colors cursor-pointer disabled:opacity-50 disabled:cursor-not-allowed min-h-[44px] max-md:w-full"
-              disabled={sendingInviteLink || !inviteLinkEmail.trim()}
-            >
-              {sendingInviteLink ? 'Creating…' : 'Create Invite Link'}
-            </button>
-          </div>
-          <div className="flex gap-2 flex-wrap">
-            <p className="text-xs font-semibold text-slate-600 self-center">Role:</p>
-            {(['Member', 'Admin'] as const).map(r => (
-              <label key={r} className={`flex items-center gap-2 px-3 py-1.5 rounded-xl border cursor-pointer text-sm font-semibold transition-colors ${inviteLinkRole === r ? 'border-indigo-600 bg-indigo-50 text-indigo-700' : 'border-slate-300 text-slate-600 hover:bg-slate-50'}`}>
-                <input type="radio" name="invite-link-role" value={r} checked={inviteLinkRole === r} onChange={() => setInviteLinkRole(r)} className="sr-only" />
-                {r}
-              </label>
-            ))}
-          </div>
-        </form>
-
-        {inviteListError && <div className="bg-red-50 border border-red-200 text-red-700 rounded-xl px-4 py-3 text-sm mb-3">⚠️ {inviteListError}</div>}
-        {invites.length > 0 && (
-          <div className="flex flex-col gap-2">
-            {invites.map(inv => {
-              const statusBadge = inv.status === 'Pending'
-                ? 'bg-amber-100 text-amber-700'
-                : inv.status === 'Accepted'
-                ? 'bg-emerald-100 text-emerald-700'
-                : 'bg-slate-100 text-slate-500';
-              return (
-                <div key={inv.id} className="flex items-center justify-between gap-3 px-4 py-3 bg-slate-50 border border-slate-200 rounded-xl flex-wrap max-md:flex-col max-md:items-start">
-                  <div className="flex items-center gap-2.5 flex-wrap min-w-0">
-                    <span className="text-sm font-semibold text-slate-800 truncate">{inv.email}</span>
-                    <span className={`text-xs font-semibold px-2 py-0.5 rounded-full ${statusBadge}`}>{inv.status}</span>
-                    <span className="text-xs text-slate-400">{inv.role}</span>
-                    <span className="text-xs text-slate-400">Expires {new Date(inv.expiresAt).toLocaleDateString()}</span>
-                  </div>
-                  <div className="flex gap-2 flex-wrap max-md:w-full">
-                    {inv.status === 'Pending' && (
-                      <>
-                        <button
-                          className="bg-white hover:bg-slate-100 text-slate-700 font-semibold px-3 py-1.5 text-sm min-h-[36px] rounded-xl border border-slate-200 transition-colors cursor-pointer max-md:flex-1"
-                          onClick={() => handleCopyInviteLink(inv.token, inv.id)}
-                        >
-                          {copiedTokenId === inv.id ? '✓ Copied!' : '📋 Copy link'}
-                        </button>
-                        <button
-                          className="bg-red-50 hover:bg-red-100 text-red-700 font-semibold px-3 py-1.5 text-sm min-h-[36px] rounded-xl border border-red-200 transition-colors cursor-pointer disabled:opacity-50 max-md:flex-1"
-                          disabled={revokingInviteId === inv.id}
-                          onClick={() => handleRevokeInvite(inv.id)}
-                        >
-                          {revokingInviteId === inv.id ? 'Revoking…' : 'Revoke'}
-                        </button>
-                      </>
-                    )}
-                  </div>
-                </div>
-              );
-            })}
-          </div>
-        )}
-        {invites.length === 0 && <p className="text-sm text-slate-400">No invites yet.</p>}
-      </section>
-      </>) : (
-      <section className="bg-white rounded-2xl shadow-sm border border-slate-200/60 p-6 mb-5">
-        <h2 className="text-lg font-bold text-slate-800 mb-2">Members &amp; Access</h2>
-        <div className="flex items-start gap-3 p-4 bg-emerald-50 border border-emerald-200 rounded-xl">
-          <span className="text-xl mt-0.5">🌐</span>
-          <div>
-            <p className="text-sm font-semibold text-emerald-800 mb-1">This is a public space</p>
-            <p className="text-sm text-slate-600">Anyone can browse and book resources — no membership required. To restrict access, change the visibility to <span className="font-semibold">Private</span> in the settings above.</p>
-          </div>
-        </div>
-      </section>
-      )}
 
       {confirmRemoveMember && (
         <ConfirmDialog
