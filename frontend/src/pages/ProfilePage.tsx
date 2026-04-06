@@ -1,7 +1,14 @@
 import { useEffect, useRef, useState } from 'react';
+import { useNavigate } from 'react-router-dom';
 import { useAuth } from 'react-oidc-context';
-import { keycloakAccountApi, profileApi } from '../api/client';
-import type { PasskeyCredential } from '../api/client';
+import { keycloakAccountApi, meApi, profileApi } from '../api/client';
+import type { PasskeyCredential, TierInfo } from '../api/client';
+
+const TIER_BADGE: Record<string, { label: string; cls: string }> = {
+  free:       { label: 'Free',       cls: 'bg-slate-100 text-slate-600' },
+  pro:        { label: 'Pro',        cls: 'bg-indigo-100 text-indigo-700' },
+  enterprise: { label: 'Enterprise', cls: 'bg-amber-100 text-amber-700' },
+};
 
 const webAuthnSupported =
   typeof window !== 'undefined' &&
@@ -10,11 +17,13 @@ const webAuthnSupported =
 
 export function ProfilePage() {
   const auth = useAuth();
+  const navigate = useNavigate();
 
   const [firstName, setFirstName] = useState('');
   const [lastName, setLastName] = useState('');
   const [email, setEmail] = useState('');
   const [phoneNumber, setPhoneNumber] = useState('');
+  const [tierInfo, setTierInfo] = useState<TierInfo | null>(null);
 
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
@@ -30,12 +39,16 @@ export function ProfilePage() {
   const passkeysRef = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
-    profileApi.get()
-      .then(profile => {
+    Promise.all([
+      profileApi.get(),
+      meApi.getTier().catch(() => null),
+    ])
+      .then(([profile, t]) => {
         setFirstName(profile.firstName ?? '');
         setLastName(profile.lastName ?? '');
         setEmail(profile.email ?? '');
         setPhoneNumber(profile.attributes?.phone_number?.[0] ?? '');
+        setTierInfo(t);
       })
       .catch(() => setError('Could not load profile.'))
       .finally(() => setLoading(false));
@@ -104,11 +117,22 @@ export function ProfilePage() {
 
   if (loading) return <div className="flex justify-center items-center py-12 text-slate-500 text-lg">Loading profile…</div>;
 
+  const tier = tierInfo?.tier ?? 'free';
+  const badge = TIER_BADGE[tier];
+
   return (
     <div className="max-w-4xl mx-auto px-4 sm:px-6 lg:px-8 py-8">
       <div className="mb-8">
-        <h1 className="text-3xl font-bold text-slate-900">My profile</h1>
-        <p className="text-slate-500 mt-1">Update your contact details</p>
+        <div className="flex items-center gap-2.5 mb-1">
+          <h1 className="text-3xl font-bold text-slate-900">My profile</h1>
+          <span className={`text-xs font-semibold px-2.5 py-0.5 rounded-full ${badge.cls}`}>{badge.label}</span>
+        </div>
+        <p className="text-slate-500 mt-1">
+          Update your contact details.{' '}
+          {tier === 'free' && (
+            <button className="underline text-indigo-600 bg-transparent border-none cursor-pointer p-0 text-sm" onClick={() => navigate('/upgrade')}>Upgrade plan →</button>
+          )}
+        </p>
       </div>
 
       {success && <div className="bg-emerald-50 border border-emerald-200 text-emerald-700 rounded-xl px-4 py-3 text-sm font-medium mb-6">✅ Profile saved!</div>}

@@ -35,7 +35,7 @@ export function InviteAcceptPage() {
     try {
       const result = await invitationsApi.accept(token);
       setAccepted(true);
-      setAcceptedSlug(result.tenantSlug);
+      setAcceptedSlug(result.spaceSlug);
     } catch (err: unknown) {
       const axiosErr = err as { response?: { status?: number; data?: { title?: string } } };
       const status = axiosErr?.response?.status;
@@ -59,11 +59,11 @@ export function InviteAcceptPage() {
       <div className="min-h-screen bg-slate-50 flex items-center justify-center px-4">
         <div className="max-w-md w-full bg-white rounded-2xl shadow-sm border border-slate-200/60 p-8 text-center">
           <div className="text-4xl mb-4">🎉</div>
-          <h1 className="text-xl font-bold text-slate-900 mb-2">You've joined {details?.tenantName ?? 'the space'}!</h1>
+          <h1 className="text-xl font-bold text-slate-900 mb-2">You've joined {details?.spaceName ?? 'the space'}!</h1>
           <p className="text-sm text-slate-500 mb-6">You can now browse resources and make bookings.</p>
           <button
             className="bg-indigo-600 hover:bg-indigo-700 text-white font-semibold px-6 py-3 rounded-xl transition-colors cursor-pointer min-h-[44px] w-full"
-            onClick={() => navigate(`/tenants/${acceptedSlug}`)}
+            onClick={() => navigate(`/spaces/${acceptedSlug}`)}
           >
             Go to space →
           </button>
@@ -101,7 +101,7 @@ export function InviteAcceptPage() {
           <h1 className="text-xl font-bold text-slate-900">You've been invited</h1>
           {details && (
             <p className="text-sm text-slate-500 mt-1">
-              to join <span className="font-semibold text-slate-800">{details.tenantName}</span>
+              to join <span className="font-semibold text-slate-800">{details.spaceName}</span>
             </p>
           )}
         </div>
@@ -110,7 +110,7 @@ export function InviteAcceptPage() {
           <div className="bg-slate-50 rounded-xl border border-slate-200 px-4 py-3 mb-6 text-sm space-y-1.5">
             <div className="flex justify-between">
               <span className="text-slate-500">Space</span>
-              <span className="font-semibold text-slate-800">{details.tenantName}</span>
+              <span className="font-semibold text-slate-800">{details.spaceName}</span>
             </div>
             <div className="flex justify-between">
               <span className="text-slate-500">Role</span>
@@ -164,7 +164,7 @@ export function InviteAcceptPage() {
           {isAlreadyAccepted && details && (
             <button
               className="bg-indigo-600 hover:bg-indigo-700 text-white font-semibold px-6 py-3 rounded-xl transition-colors cursor-pointer min-h-[44px] w-full"
-              onClick={() => navigate(`/tenants/${details.tenantSlug}`)}
+              onClick={() => navigate(`/spaces/${details.spaceSlug}`)}
             >
               Go to space →
             </button>

@@ -5,7 +5,7 @@ const STEPS = [
     number: '01',
     title: 'Create your space',
     description:
-      'Sign up and create a tenant for your organisation or club in under 2 minutes.',
+      'Sign up and create a space for your organisation or club in under 2 minutes.',
   },
   {
     number: '02',

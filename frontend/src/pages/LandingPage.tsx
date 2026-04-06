@@ -17,13 +17,13 @@ export function LandingPage() {
   // Redirect authenticated users straight to the dashboard
   useEffect(() => {
     if (auth.isAuthenticated) {
-      navigate('/tenants', { replace: true });
+      navigate('/spaces', { replace: true });
     }
   }, [auth.isAuthenticated, navigate]);
 
   function handleGetStarted() {
     if (auth.isAuthenticated) {
-      navigate('/tenants');
+      navigate('/spaces');
     } else {
       auth.signinRedirect();
     }

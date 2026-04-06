@@ -109,19 +109,31 @@ static bool IsAdmin(ClaimsPrincipal user)
     return false;
 }
 
-static bool IsTenantAdmin(ClaimsPrincipal user)
+static string GetUserTier(ClaimsPrincipal user)
 {
     var raw = user.FindFirstValue("realm_access");
-    if (raw is null) return false;
+    if (raw is null) return "free";
     try
     {
         var doc = System.Text.Json.JsonDocument.Parse(raw);
         if (doc.RootElement.TryGetProperty("roles", out var roles))
-            return roles.EnumerateArray().Any(r => r.GetString() is "tenant-admin" or "admin");
+        {
+            var roleList = roles.EnumerateArray().Select(r => r.GetString()).ToList();
+            if (roleList.Contains("enterprise")) return "enterprise";
+            if (roleList.Contains("pro")) return "pro";
+        }
     }
     catch { }
-    return false;
+    return "free";
 }
+
+static TierLimits LimitsForTier(string tier) => tier switch
+{
+    "enterprise" => new TierLimits(int.MaxValue, int.MaxValue, true, true),
+    "pro"        => new TierLimits(5, 100, true, true),
+    _            => new TierLimits(1, 3, false, false),
+};
+
 
 // --- Config endpoint ---
 app.MapGet("/api/config", (IConfiguration config, IWebHostEnvironment env) =>
@@ -132,41 +144,65 @@ app.MapGet("/api/config", (IConfiguration config, IWebHostEnvironment env) =>
     return Results.Ok(new { keycloakAuthority = authority });
 });
 
-// --- Tenants API ---
-var tenantsApi = app.MapGroup("/api/tenants");
+// --- Spaces API ---
+var spacesApi = app.MapGroup("/api/spaces");
 
-// List all tenants (public)
-tenantsApi.MapGet("/", async (AppDbContext db) =>
-    await db.Tenants
-        .Select(t => new { t.Id, t.Name, t.Slug, t.Description, t.OwnerId, t.Visibility, t.CreatedAt })
-        .ToListAsync());
-
-// Get single tenant (public)
-tenantsApi.MapGet("/{idOrSlug}", async (string idOrSlug, AppDbContext db) =>
+// List spaces: public spaces + private spaces the current user owns or is a member of
+spacesApi.MapGet("/", async (ClaimsPrincipal user, AppDbContext db) =>
 {
-    Tenant? tenant = int.TryParse(idOrSlug, out var id)
-        ? await db.Tenants.FindAsync(id)
-        : await db.Tenants.FirstOrDefaultAsync(t => t.Slug == idOrSlug);
-    return tenant is null ? Results.NotFound() : Results.Ok(new { tenant.Id, tenant.Name, tenant.Slug, tenant.Description, tenant.OwnerId, tenant.Visibility, tenant.CreatedAt });
+    var userId = user.Identity?.IsAuthenticated == true
+        ? (user.FindFirstValue(ClaimTypes.NameIdentifier) ?? user.FindFirstValue("sub"))
+        : null;
+    var isAdmin = userId != null && IsAdmin(user);
+
+    var spaces = await db.Spaces
+        .Where(s =>
+            s.Visibility == SpaceVisibility.Public ||
+            isAdmin ||
+            s.OwnerId == userId ||
+            db.Memberships.Any(m => m.SpaceId == s.Id && m.UserId == userId))
+        .Select(s => new { s.Id, s.Name, s.Slug, s.Description, s.OwnerId, s.Visibility, s.CreatedAt })
+        .ToListAsync();
+
+    return Results.Ok(spaces);
+}).RequireAuthorization();
+
+// Get single space (public)
+spacesApi.MapGet("/{idOrSlug}", async (string idOrSlug, AppDbContext db) =>
+{
+    // Always try slug first — numeric slugs (e.g. "5") must not be mistaken for DB IDs
+    var space = await db.Spaces.FirstOrDefaultAsync(t => t.Slug == idOrSlug)
+                ?? (int.TryParse(idOrSlug, out var id) ? await db.Spaces.FindAsync(id) : null);
+    return space is null ? Results.NotFound() : Results.Ok(new { space.Id, space.Name, space.Slug, space.Description, space.OwnerId, space.Visibility, space.CreatedAt });
 });
 
-// Create tenant (authenticated — caller becomes owner)
-tenantsApi.MapPost("/", async (CreateTenantRequest req, ClaimsPrincipal user, AppDbContext db, IConfiguration config, IWebHostEnvironment env, IHttpClientFactory httpClientFactory) =>
+// Create space (authenticated — caller becomes owner)
+spacesApi.MapPost("/", async (CreateSpaceRequest req, ClaimsPrincipal user, AppDbContext db, IConfiguration config, IWebHostEnvironment env, IHttpClientFactory httpClientFactory) =>
 {
     if (user.Identity?.IsAuthenticated != true) return Results.Unauthorized();
 
     var ownerId = user.FindFirstValue(ClaimTypes.NameIdentifier) ?? user.FindFirstValue("sub")!;
+    var tier = GetUserTier(user);
+    var limits = LimitsForTier(tier);
+
+    var existingSpaceCount = await db.Spaces.CountAsync(s => s.OwnerId == ownerId);
+    if (existingSpaceCount >= limits.MaxSpaces)
+        return Results.BadRequest($"Your {tier} plan allows up to {limits.MaxSpaces} space(s). Upgrade to create more.");
 
     if (string.IsNullOrWhiteSpace(req.Name) || string.IsNullOrWhiteSpace(req.Slug))
         return Results.BadRequest("Name and slug are required.");
 
     var slug = req.Slug.ToLowerInvariant().Trim();
-    if (await db.Tenants.AnyAsync(t => t.Slug == slug))
-        return Results.Conflict("A tenant with that slug already exists.");
+    if (await db.Spaces.AnyAsync(t => t.Slug == slug))
+        return Results.Conflict("A space with that slug already exists.");
 
-    var visibility = req.Visibility == "Private" ? TenantVisibility.Private : TenantVisibility.Public;
+    var visibility = (limits.CanHavePrivateSpaces &&
+                      Enum.TryParse<SpaceVisibility>(req.Visibility, true, out var reqVis) &&
+                      reqVis == SpaceVisibility.Private)
+        ? SpaceVisibility.Private
+        : SpaceVisibility.Public;
 
-    var tenant = new Tenant
+    var space = new Space
     {
         Name = req.Name.Trim(),
         Slug = slug,
@@ -174,104 +210,168 @@ tenantsApi.MapPost("/", async (CreateTenantRequest req, ClaimsPrincipal user, Ap
         OwnerId = ownerId,
         Visibility = visibility,
     };
-    db.Tenants.Add(tenant);
+    db.Spaces.Add(space);
     await db.SaveChangesAsync();
 
-    // Create a Keycloak group for this space (best-effort)
-    _ = Task.Run(async () =>
+    // Create a Keycloak group for private spaces only (best-effort)
+    if (visibility == SpaceVisibility.Private)
     {
-        try { await CreateKeycloakGroupAsync(config, httpClientFactory, env.IsDevelopment(), $"spaces/{slug}"); }
-        catch { /* group sync is best-effort */ }
-    });
+        _ = Task.Run(async () =>
+        {
+            try { await CreateKeycloakGroupAsync(config, httpClientFactory, env.IsDevelopment(), $"spaces/{slug}"); }
+            catch { /* group sync is best-effort */ }
+        });
+    }
 
-    return Results.Created($"/api/tenants/{tenant.Slug}", new { tenant.Id, tenant.Name, tenant.Slug, tenant.Description, tenant.OwnerId, tenant.Visibility, tenant.CreatedAt });
+    return Results.Created($"/api/spaces/{space.Slug}", new { space.Id, space.Name, space.Slug, space.Description, space.OwnerId, space.Visibility, space.CreatedAt });
 }).RequireAuthorization();
 
-// Update tenant (tenant owner or global admin)
-tenantsApi.MapPut("/{id:int}", async (int id, UpdateTenantRequest req, ClaimsPrincipal user, AppDbContext db) =>
+// Update space (space owner or global admin)
+spacesApi.MapPut("/{id:int}", async (int id, UpdateSpaceRequest req, ClaimsPrincipal user, AppDbContext db, IConfiguration config, IWebHostEnvironment env, IHttpClientFactory httpClientFactory) =>
 {
-    var tenant = await db.Tenants.FindAsync(id);
-    if (tenant is null) return Results.NotFound();
+    var space = await db.Spaces.FindAsync(id);
+    if (space is null) return Results.NotFound();
     var userId = user.FindFirstValue(ClaimTypes.NameIdentifier) ?? user.FindFirstValue("sub")!;
-    if (tenant.OwnerId != userId && !IsAdmin(user)) return Results.Forbid();
+    if (space.OwnerId != userId && !IsAdmin(user)) return Results.Forbid();
 
-    tenant.Name = req.Name?.Trim() ?? tenant.Name;
-    tenant.Description = req.Description?.Trim() ?? tenant.Description;
-    if (req.Visibility is not null)
-        tenant.Visibility = req.Visibility == "Private" ? TenantVisibility.Private : TenantVisibility.Public;
+    space.Name = req.Name?.Trim() ?? space.Name;
+    space.Description = req.Description?.Trim() ?? space.Description;
+
+    var previousVisibility = space.Visibility;
+    if (req.Visibility != null)
+    {
+        var ownerTier = GetUserTier(user);
+        if (LimitsForTier(ownerTier).CanHavePrivateSpaces &&
+            Enum.TryParse<SpaceVisibility>(req.Visibility, true, out var newVis))
+            space.Visibility = newVis;
+        else
+            space.Visibility = SpaceVisibility.Public;
+    }
+
+    var newVisibility = space.Visibility;
     await db.SaveChangesAsync();
-    return Results.Ok(new { tenant.Id, tenant.Name, tenant.Slug, tenant.Description, tenant.Visibility });
+
+    // Handle visibility transitions (best-effort, fire-and-forget)
+    if (previousVisibility != newVisibility)
+    {
+        if (newVisibility == SpaceVisibility.Private)
+        {
+            // Public → Private: create Keycloak group
+            _ = Task.Run(async () =>
+            {
+                try { await CreateKeycloakGroupAsync(config, httpClientFactory, env.IsDevelopment(), $"spaces/{space.Slug}"); }
+                catch { }
+            });
+        }
+        else
+        {
+            // Private → Public: remove all memberships and clean up Keycloak group
+            var memberIds = await db.Memberships
+                .Where(m => m.SpaceId == space.Id)
+                .Select(m => m.UserId)
+                .ToListAsync();
+            await db.Memberships.Where(m => m.SpaceId == space.Id).ExecuteDeleteAsync();
+
+            _ = Task.Run(async () =>
+            {
+                try
+                {
+                    foreach (var memberId in memberIds)
+                        await RemoveUserFromKeycloakGroupAsync(config, httpClientFactory, env.IsDevelopment(), memberId, $"spaces/{space.Slug}");
+                    await DeleteKeycloakGroupAsync(config, httpClientFactory, env.IsDevelopment(), $"spaces/{space.Slug}");
+                }
+                catch { }
+            });
+        }
+    }
+
+    return Results.Ok(new { space.Id, space.Name, space.Slug, space.Description, space.Visibility });
 }).RequireAuthorization();
 
-// Delete tenant (tenant owner or global admin)
-tenantsApi.MapDelete("/{id:int}", async (int id, ClaimsPrincipal user, AppDbContext db) =>
+// Delete space (space owner or global admin)
+spacesApi.MapDelete("/{id:int}", async (int id, ClaimsPrincipal user, AppDbContext db, IConfiguration config, IWebHostEnvironment env, IHttpClientFactory httpClientFactory) =>
 {
-    var tenant = await db.Tenants.FindAsync(id);
-    if (tenant is null) return Results.NotFound();
+    var space = await db.Spaces.FindAsync(id);
+    if (space is null) return Results.NotFound();
     var userId = user.FindFirstValue(ClaimTypes.NameIdentifier) ?? user.FindFirstValue("sub")!;
-    if (tenant.OwnerId != userId && !IsAdmin(user)) return Results.Forbid();
-    db.Tenants.Remove(tenant);
+    if (space.OwnerId != userId && !IsAdmin(user)) return Results.Forbid();
+
+    var slug = space.Slug;
+    var wasPrivate = space.Visibility == SpaceVisibility.Private;
+
+    db.Spaces.Remove(space);
     await db.SaveChangesAsync();
+
+    // Clean up Keycloak group if it existed (private spaces only)
+    if (wasPrivate)
+    {
+        _ = Task.Run(async () =>
+        {
+            try { await DeleteKeycloakGroupAsync(config, httpClientFactory, env.IsDevelopment(), $"spaces/{slug}"); }
+            catch { }
+        });
+    }
+
     return Results.NoContent();
 }).RequireAuthorization();
 
-// --- Resources API (under tenant) ---
+// --- Resources API (under space) ---
 
-// Helper: check if a user has access to a tenant (owner, global admin, or member of private space)
-static async Task<bool> HasTenantAccess(Tenant tenant, string userId, bool isAdmin, AppDbContext db)
+// Helper: check if a user has access to a space (owner, global admin, or member of private space)
+static async Task<bool> HasSpaceAccess(Space space, string userId, bool isAdmin, AppDbContext db)
 {
-    if (isAdmin || tenant.OwnerId == userId) return true;
-    if (tenant.Visibility == TenantVisibility.Public) return true;
-    return await db.Memberships.AnyAsync(m => m.TenantId == tenant.Id && m.UserId == userId);
+    if (isAdmin || space.OwnerId == userId) return true;
+    if (space.Visibility == SpaceVisibility.Public) return true;
+    return await db.Memberships.AnyAsync(m => m.SpaceId == space.Id && m.UserId == userId);
 }
 
-// List resources for a tenant (access-controlled)
-tenantsApi.MapGet("/{tenantId:int}/resources", async (int tenantId, ClaimsPrincipal user, AppDbContext db) =>
+// List resources for a space (access-controlled)
+spacesApi.MapGet("/{spaceId:int}/resources", async (int spaceId, ClaimsPrincipal user, AppDbContext db) =>
 {
-    var tenant = await db.Tenants.FindAsync(tenantId);
-    if (tenant is null) return Results.NotFound();
-    if (tenant.Visibility == TenantVisibility.Private)
+    var space = await db.Spaces.FindAsync(spaceId);
+    if (space is null) return Results.NotFound();
+    if (space.Visibility == SpaceVisibility.Private)
     {
         if (user.Identity?.IsAuthenticated != true) return Results.Forbid();
         var userId = user.FindFirstValue(ClaimTypes.NameIdentifier) ?? user.FindFirstValue("sub")!;
-        if (!await HasTenantAccess(tenant, userId, IsAdmin(user), db)) return Results.Forbid();
+        if (!await HasSpaceAccess(space, userId, IsAdmin(user), db)) return Results.Forbid();
     }
     return Results.Ok(await db.Resources
-        .Where(r => r.TenantId == tenantId && r.IsActive)
-        .Select(r => new { r.Id, r.TenantId, r.Name, r.Description, r.ResourceType, r.SlotDurationMinutes, r.MaxAdvanceDays, r.IsActive })
+        .Where(r => r.SpaceId == spaceId && r.IsActive)
+        .Select(r => new { r.Id, r.SpaceId, r.Name, r.Description, r.ResourceType, r.SlotDurationMinutes, r.MaxAdvanceDays, r.IsActive })
         .ToListAsync());
 });
 
 // Get single resource (access-controlled)
-tenantsApi.MapGet("/{tenantId:int}/resources/{resourceId:int}", async (int tenantId, int resourceId, ClaimsPrincipal user, AppDbContext db) =>
+spacesApi.MapGet("/{spaceId:int}/resources/{resourceId:int}", async (int spaceId, int resourceId, ClaimsPrincipal user, AppDbContext db) =>
 {
-    var tenant = await db.Tenants.FindAsync(tenantId);
-    if (tenant is null) return Results.NotFound();
-    if (tenant.Visibility == TenantVisibility.Private)
+    var space = await db.Spaces.FindAsync(spaceId);
+    if (space is null) return Results.NotFound();
+    if (space.Visibility == SpaceVisibility.Private)
     {
         if (user.Identity?.IsAuthenticated != true) return Results.Forbid();
         var userId = user.FindFirstValue(ClaimTypes.NameIdentifier) ?? user.FindFirstValue("sub")!;
-        if (!await HasTenantAccess(tenant, userId, IsAdmin(user), db)) return Results.Forbid();
+        if (!await HasSpaceAccess(space, userId, IsAdmin(user), db)) return Results.Forbid();
     }
-    var resource = await db.Resources.FirstOrDefaultAsync(r => r.Id == resourceId && r.TenantId == tenantId);
-    return resource is null ? Results.NotFound() : Results.Ok(new { resource.Id, resource.TenantId, resource.Name, resource.Description, resource.ResourceType, resource.SlotDurationMinutes, resource.MaxAdvanceDays, resource.IsActive });
+    var resource = await db.Resources.FirstOrDefaultAsync(r => r.Id == resourceId && r.SpaceId == spaceId);
+    return resource is null ? Results.NotFound() : Results.Ok(new { resource.Id, resource.SpaceId, resource.Name, resource.Description, resource.ResourceType, resource.SlotDurationMinutes, resource.MaxAdvanceDays, resource.IsActive });
 });
 
 // Get bookings for a resource in a date range (access-controlled)
-tenantsApi.MapGet("/{tenantId:int}/resources/{resourceId:int}/bookings",
-    async (int tenantId, int resourceId, DateOnly from, DateOnly to, ClaimsPrincipal user, AppDbContext db) =>
+spacesApi.MapGet("/{spaceId:int}/resources/{resourceId:int}/bookings",
+    async (int spaceId, int resourceId, DateOnly from, DateOnly to, ClaimsPrincipal user, AppDbContext db) =>
 {
-    var tenant = await db.Tenants.FindAsync(tenantId);
-    if (tenant is null) return Results.NotFound();
+    var space = await db.Spaces.FindAsync(spaceId);
+    if (space is null) return Results.NotFound();
     var isAuthenticated = user.Identity?.IsAuthenticated == true;
-    if (tenant.Visibility == TenantVisibility.Private)
+    if (space.Visibility == SpaceVisibility.Private)
     {
         if (!isAuthenticated) return Results.Forbid();
         var checkUserId = user.FindFirstValue(ClaimTypes.NameIdentifier) ?? user.FindFirstValue("sub")!;
-        if (!await HasTenantAccess(tenant, checkUserId, IsAdmin(user), db)) return Results.Forbid();
+        if (!await HasSpaceAccess(space, checkUserId, IsAdmin(user), db)) return Results.Forbid();
     }
     var bookings = await db.Bookings
-        .Where(b => b.ResourceId == resourceId && b.TenantId == tenantId && b.Date >= from && b.Date <= to)
+        .Where(b => b.ResourceId == resourceId && b.SpaceId == spaceId && b.Date >= from && b.Date <= to)
         .OrderBy(b => b.Date).ThenBy(b => b.StartTime)
         .Select(b => new
         {
@@ -289,18 +389,30 @@ tenantsApi.MapGet("/{tenantId:int}/resources/{resourceId:int}/bookings",
     return Results.Ok(bookings);
 });
 
-// Create resource (tenant owner or global admin)
-tenantsApi.MapPost("/{tenantId:int}/resources", async (int tenantId, CreateResourceRequest req, ClaimsPrincipal user, AppDbContext db) =>
+// Create resource (space owner or global admin)
+spacesApi.MapPost("/{spaceId:int}/resources", async (int spaceId, CreateResourceRequest req, ClaimsPrincipal user, AppDbContext db) =>
 {
-    var tenant = await db.Tenants.FindAsync(tenantId);
-    if (tenant is null) return Results.NotFound();
+    var space = await db.Spaces.FindAsync(spaceId);
+    if (space is null) return Results.NotFound();
     var userId = user.FindFirstValue(ClaimTypes.NameIdentifier) ?? user.FindFirstValue("sub")!;
-    if (tenant.OwnerId != userId && !IsAdmin(user)) return Results.Forbid();
+    if (space.OwnerId != userId && !IsAdmin(user)) return Results.Forbid();
+
+    var tier = GetUserTier(user);
+    var limits = LimitsForTier(tier);
+
+    // Tier: max resources per space
+    var resourceCount = await db.Resources.CountAsync(r => r.SpaceId == spaceId && r.IsActive);
+    if (resourceCount >= limits.MaxResourcesPerSpace)
+        return Results.BadRequest($"Your {tier} plan allows up to {limits.MaxResourcesPerSpace} resource(s) per space. Upgrade to add more.");
+
+    var newName = req.Name.Trim();
+    if (await db.Resources.AnyAsync(r => r.SpaceId == spaceId && r.Name == newName))
+        return Results.Conflict("A resource with that name already exists in this space.");
 
     var resource = new Resource
     {
-        TenantId = tenantId,
-        Name = req.Name.Trim(),
+        SpaceId = spaceId,
+        Name = newName,
         Description = req.Description?.Trim() ?? string.Empty,
         ResourceType = req.ResourceType.Trim(),
         SlotDurationMinutes = req.SlotDurationMinutes > 0 ? req.SlotDurationMinutes : 60,
@@ -309,35 +421,40 @@ tenantsApi.MapPost("/{tenantId:int}/resources", async (int tenantId, CreateResou
     };
     db.Resources.Add(resource);
     await db.SaveChangesAsync();
-    return Results.Created($"/api/tenants/{tenantId}/resources/{resource.Id}",
-        new { resource.Id, resource.TenantId, resource.Name, resource.Description, resource.ResourceType, resource.SlotDurationMinutes, resource.MaxAdvanceDays, resource.IsActive });
+    return Results.Created($"/api/spaces/{spaceId}/resources/{resource.Id}",
+        new { resource.Id, resource.SpaceId, resource.Name, resource.Description, resource.ResourceType, resource.SlotDurationMinutes, resource.MaxAdvanceDays, resource.IsActive });
 }).RequireAuthorization();
 
-// Update resource (tenant owner or global admin)
-tenantsApi.MapPut("/{tenantId:int}/resources/{resourceId:int}", async (int tenantId, int resourceId, UpdateResourceRequest req, ClaimsPrincipal user, AppDbContext db) =>
+// Update resource (space owner or global admin)
+spacesApi.MapPut("/{spaceId:int}/resources/{resourceId:int}", async (int spaceId, int resourceId, UpdateResourceRequest req, ClaimsPrincipal user, AppDbContext db) =>
 {
-    var resource = await db.Resources.Include(r => r.Tenant).FirstOrDefaultAsync(r => r.Id == resourceId && r.TenantId == tenantId);
+    var resource = await db.Resources.Include(r => r.Space).FirstOrDefaultAsync(r => r.Id == resourceId && r.SpaceId == spaceId);
     if (resource is null) return Results.NotFound();
     var userId = user.FindFirstValue(ClaimTypes.NameIdentifier) ?? user.FindFirstValue("sub")!;
-    if (resource.Tenant.OwnerId != userId && !IsAdmin(user)) return Results.Forbid();
+    if (resource.Space.OwnerId != userId && !IsAdmin(user)) return Results.Forbid();
 
-    resource.Name = req.Name?.Trim() ?? resource.Name;
+    var updatedName = req.Name?.Trim();
+    if (updatedName is not null && updatedName != resource.Name &&
+        await db.Resources.AnyAsync(r => r.SpaceId == spaceId && r.Name == updatedName && r.Id != resourceId))
+        return Results.Conflict("A resource with that name already exists in this space.");
+
+    resource.Name = updatedName ?? resource.Name;
     resource.Description = req.Description?.Trim() ?? resource.Description;
     resource.ResourceType = req.ResourceType?.Trim() ?? resource.ResourceType;
     if (req.SlotDurationMinutes > 0) resource.SlotDurationMinutes = req.SlotDurationMinutes;
     if (req.MaxAdvanceDays > 0) resource.MaxAdvanceDays = req.MaxAdvanceDays;
     if (req.IsActive.HasValue) resource.IsActive = req.IsActive.Value;
     await db.SaveChangesAsync();
-    return Results.Ok(new { resource.Id, resource.TenantId, resource.Name, resource.Description, resource.ResourceType, resource.SlotDurationMinutes, resource.MaxAdvanceDays, resource.IsActive });
+    return Results.Ok(new { resource.Id, resource.SpaceId, resource.Name, resource.Description, resource.ResourceType, resource.SlotDurationMinutes, resource.MaxAdvanceDays, resource.IsActive });
 }).RequireAuthorization();
 
-// Delete resource (tenant owner or global admin)
-tenantsApi.MapDelete("/{tenantId:int}/resources/{resourceId:int}", async (int tenantId, int resourceId, ClaimsPrincipal user, AppDbContext db) =>
+// Delete resource (space owner or global admin)
+spacesApi.MapDelete("/{spaceId:int}/resources/{resourceId:int}", async (int spaceId, int resourceId, ClaimsPrincipal user, AppDbContext db) =>
 {
-    var resource = await db.Resources.Include(r => r.Tenant).FirstOrDefaultAsync(r => r.Id == resourceId && r.TenantId == tenantId);
+    var resource = await db.Resources.Include(r => r.Space).FirstOrDefaultAsync(r => r.Id == resourceId && r.SpaceId == spaceId);
     if (resource is null) return Results.NotFound();
     var userId = user.FindFirstValue(ClaimTypes.NameIdentifier) ?? user.FindFirstValue("sub")!;
-    if (resource.Tenant.OwnerId != userId && !IsAdmin(user)) return Results.Forbid();
+    if (resource.Space.OwnerId != userId && !IsAdmin(user)) return Results.Forbid();
     db.Resources.Remove(resource);
     await db.SaveChangesAsync();
     return Results.NoContent();
@@ -345,19 +462,19 @@ tenantsApi.MapDelete("/{tenantId:int}/resources/{resourceId:int}", async (int te
 
 // --- Membership API ---
 
-// Get members of a tenant (owner, global admin, or admin member)
-tenantsApi.MapGet("/{tenantId:int}/members", async (int tenantId, ClaimsPrincipal user, AppDbContext db, IConfiguration config, IWebHostEnvironment env, IHttpClientFactory httpClientFactory) =>
+// Get members of a space (owner, global admin, or admin member)
+spacesApi.MapGet("/{spaceId:int}/members", async (int spaceId, ClaimsPrincipal user, AppDbContext db, IConfiguration config, IWebHostEnvironment env, IHttpClientFactory httpClientFactory) =>
 {
-    var tenant = await db.Tenants.FindAsync(tenantId);
-    if (tenant is null) return Results.NotFound();
+    var space = await db.Spaces.FindAsync(spaceId);
+    if (space is null) return Results.NotFound();
     var userId = user.FindFirstValue(ClaimTypes.NameIdentifier) ?? user.FindFirstValue("sub");
     if (userId is null) return Results.Unauthorized();
-    if (tenant.OwnerId != userId && !IsAdmin(user))
+    if (space.OwnerId != userId && !IsAdmin(user))
     {
-        var callerMembership = await db.Memberships.FirstOrDefaultAsync(m => m.TenantId == tenantId && m.UserId == userId);
-        if (callerMembership?.Role != TenantMemberRole.Admin) return Results.Forbid();
+        var callerMembership = await db.Memberships.FirstOrDefaultAsync(m => m.SpaceId == spaceId && m.UserId == userId);
+        if (callerMembership?.Role != SpaceMemberRole.Admin) return Results.Forbid();
     }
-    var memberships = await db.Memberships.Where(m => m.TenantId == tenantId).ToListAsync();
+    var memberships = await db.Memberships.Where(m => m.SpaceId == spaceId).ToListAsync();
 
     // Enrich with Keycloak user info (best-effort)
     var adminToken = await GetKeycloakAdminTokenAsync(config, httpClientFactory, env.IsDevelopment());
@@ -391,13 +508,13 @@ tenantsApi.MapGet("/{tenantId:int}/members", async (int tenantId, ClaimsPrincipa
 }).RequireAuthorization();
 
 // Search for a Keycloak user by email (check before adding as member)
-tenantsApi.MapGet("/{tenantId:int}/members/search", async (int tenantId, string email, ClaimsPrincipal user, AppDbContext db, IConfiguration config, IWebHostEnvironment env, IHttpClientFactory httpClientFactory) =>
+spacesApi.MapGet("/{spaceId:int}/members/search", async (int spaceId, string email, ClaimsPrincipal user, AppDbContext db, IConfiguration config, IWebHostEnvironment env, IHttpClientFactory httpClientFactory) =>
 {
-    var tenant = await db.Tenants.FindAsync(tenantId);
-    if (tenant is null) return Results.NotFound();
+    var space = await db.Spaces.FindAsync(spaceId);
+    if (space is null) return Results.NotFound();
     var userId = user.FindFirstValue(ClaimTypes.NameIdentifier) ?? user.FindFirstValue("sub");
     if (userId is null) return Results.Unauthorized();
-    if (tenant.OwnerId != userId && !IsAdmin(user)) return Results.Forbid();
+    if (space.OwnerId != userId && !IsAdmin(user)) return Results.Forbid();
 
     var adminToken = await GetKeycloakAdminTokenAsync(config, httpClientFactory, env.IsDevelopment());
     if (adminToken is null) return Results.StatusCode(502);
@@ -415,14 +532,14 @@ tenantsApi.MapGet("/{tenantId:int}/members/search", async (int tenantId, string 
     return Results.Ok(new { found.Id, found.FirstName, found.LastName, found.Email });
 }).RequireAuthorization();
 
-// Add a member to a tenant (owner or global admin)
-tenantsApi.MapPost("/{tenantId:int}/members", async (int tenantId, AddMemberRequest req, ClaimsPrincipal user, AppDbContext db, IConfiguration config, IWebHostEnvironment env, IHttpClientFactory httpClientFactory) =>
+// Add a member to a space (owner or global admin)
+spacesApi.MapPost("/{spaceId:int}/members", async (int spaceId, AddMemberRequest req, ClaimsPrincipal user, AppDbContext db, IConfiguration config, IWebHostEnvironment env, IHttpClientFactory httpClientFactory) =>
 {
-    var tenant = await db.Tenants.FindAsync(tenantId);
-    if (tenant is null) return Results.NotFound();
+    var space = await db.Spaces.FindAsync(spaceId);
+    if (space is null) return Results.NotFound();
     var userId = user.FindFirstValue(ClaimTypes.NameIdentifier) ?? user.FindFirstValue("sub");
     if (userId is null) return Results.Unauthorized();
-    if (tenant.OwnerId != userId && !IsAdmin(user)) return Results.Forbid();
+    if (space.OwnerId != userId && !IsAdmin(user)) return Results.Forbid();
 
     // Find user by email in Keycloak if userId not provided
     var targetUserId = req.UserId;
@@ -474,38 +591,38 @@ tenantsApi.MapPost("/{tenantId:int}/members", async (int tenantId, AddMemberRequ
         return Results.BadRequest("Either userId or email is required.");
 
     // Don't add the owner as a member
-    if (targetUserId == tenant.OwnerId)
+    if (targetUserId == space.OwnerId)
         return Results.BadRequest("The space owner cannot be added as a member.");
 
-    var existing = await db.Memberships.FirstOrDefaultAsync(m => m.TenantId == tenantId && m.UserId == targetUserId);
+    var existing = await db.Memberships.FirstOrDefaultAsync(m => m.SpaceId == spaceId && m.UserId == targetUserId);
     if (existing is not null)
         return Results.Conflict("User is already a member of this space.");
 
-    var role = req.Role == "Admin" ? TenantMemberRole.Admin : TenantMemberRole.Member;
-    var membership = new Membership { TenantId = tenantId, UserId = targetUserId, Role = role };
+    var role = req.Role == "Admin" ? SpaceMemberRole.Admin : SpaceMemberRole.Member;
+    var membership = new Membership { SpaceId = spaceId, UserId = targetUserId, Role = role };
     db.Memberships.Add(membership);
     await db.SaveChangesAsync();
 
     // Sync to Keycloak group (best-effort)
     _ = Task.Run(async () =>
     {
-        try { await AddUserToKeycloakGroupAsync(config, httpClientFactory, env.IsDevelopment(), targetUserId, $"spaces/{tenant.Slug}"); }
+        try { await AddUserToKeycloakGroupAsync(config, httpClientFactory, env.IsDevelopment(), targetUserId, $"spaces/{space.Slug}"); }
         catch { }
     });
 
-    return Results.Created($"/api/tenants/{tenantId}/members/{targetUserId}", new { membership.UserId, membership.Role, membership.JoinedAt });
+    return Results.Created($"/api/spaces/{spaceId}/members/{targetUserId}", new { membership.UserId, membership.Role, membership.JoinedAt });
 }).RequireAuthorization();
 
-// Remove a member from a tenant (owner, global admin, or the member themselves)
-tenantsApi.MapDelete("/{tenantId:int}/members/{targetUserId}", async (int tenantId, string targetUserId, ClaimsPrincipal user, AppDbContext db, IConfiguration config, IWebHostEnvironment env, IHttpClientFactory httpClientFactory) =>
+// Remove a member from a space (owner, global admin, or the member themselves)
+spacesApi.MapDelete("/{spaceId:int}/members/{targetUserId}", async (int spaceId, string targetUserId, ClaimsPrincipal user, AppDbContext db, IConfiguration config, IWebHostEnvironment env, IHttpClientFactory httpClientFactory) =>
 {
-    var tenant = await db.Tenants.FindAsync(tenantId);
-    if (tenant is null) return Results.NotFound();
+    var space = await db.Spaces.FindAsync(spaceId);
+    if (space is null) return Results.NotFound();
     var userId = user.FindFirstValue(ClaimTypes.NameIdentifier) ?? user.FindFirstValue("sub");
     if (userId is null) return Results.Unauthorized();
-    if (userId != targetUserId && tenant.OwnerId != userId && !IsAdmin(user)) return Results.Forbid();
+    if (userId != targetUserId && space.OwnerId != userId && !IsAdmin(user)) return Results.Forbid();
 
-    var membership = await db.Memberships.FirstOrDefaultAsync(m => m.TenantId == tenantId && m.UserId == targetUserId);
+    var membership = await db.Memberships.FirstOrDefaultAsync(m => m.SpaceId == spaceId && m.UserId == targetUserId);
     if (membership is null) return Results.NotFound();
 
     db.Memberships.Remove(membership);
@@ -514,7 +631,7 @@ tenantsApi.MapDelete("/{tenantId:int}/members/{targetUserId}", async (int tenant
     // Sync to Keycloak group (best-effort)
     _ = Task.Run(async () =>
     {
-        try { await RemoveUserFromKeycloakGroupAsync(config, httpClientFactory, env.IsDevelopment(), targetUserId, $"spaces/{tenant.Slug}"); }
+        try { await RemoveUserFromKeycloakGroupAsync(config, httpClientFactory, env.IsDevelopment(), targetUserId, $"spaces/{space.Slug}"); }
         catch { }
     });
 
@@ -522,43 +639,43 @@ tenantsApi.MapDelete("/{tenantId:int}/members/{targetUserId}", async (int tenant
 }).RequireAuthorization();
 
 // Join a public space (self-service)
-tenantsApi.MapPost("/{tenantId:int}/join", async (int tenantId, ClaimsPrincipal user, AppDbContext db, IConfiguration config, IWebHostEnvironment env, IHttpClientFactory httpClientFactory) =>
+spacesApi.MapPost("/{spaceId:int}/join", async (int spaceId, ClaimsPrincipal user, AppDbContext db, IConfiguration config, IWebHostEnvironment env, IHttpClientFactory httpClientFactory) =>
 {
-    var tenant = await db.Tenants.FindAsync(tenantId);
-    if (tenant is null) return Results.NotFound();
-    if (tenant.Visibility == TenantVisibility.Private) return Results.Forbid();
+    var space = await db.Spaces.FindAsync(spaceId);
+    if (space is null) return Results.NotFound();
+    if (space.Visibility == SpaceVisibility.Private) return Results.Forbid();
 
     var userId = user.FindFirstValue(ClaimTypes.NameIdentifier) ?? user.FindFirstValue("sub");
     if (userId is null) return Results.Unauthorized();
-    if (tenant.OwnerId == userId) return Results.BadRequest("You are already the owner of this space.");
+    if (space.OwnerId == userId) return Results.BadRequest("You are already the owner of this space.");
 
-    var existing = await db.Memberships.AnyAsync(m => m.TenantId == tenantId && m.UserId == userId);
+    var existing = await db.Memberships.AnyAsync(m => m.SpaceId == spaceId && m.UserId == userId);
     if (existing) return Results.Conflict("You are already a member of this space.");
 
-    var membership = new Membership { TenantId = tenantId, UserId = userId, Role = TenantMemberRole.Member };
+    var membership = new Membership { SpaceId = spaceId, UserId = userId, Role = SpaceMemberRole.Member };
     db.Memberships.Add(membership);
     await db.SaveChangesAsync();
 
     _ = Task.Run(async () =>
     {
-        try { await AddUserToKeycloakGroupAsync(config, httpClientFactory, env.IsDevelopment(), userId, $"spaces/{tenant.Slug}"); }
+        try { await AddUserToKeycloakGroupAsync(config, httpClientFactory, env.IsDevelopment(), userId, $"spaces/{space.Slug}"); }
         catch { }
     });
 
-    return Results.Created($"/api/tenants/{tenantId}/members/{userId}", new { membership.UserId, membership.Role, membership.JoinedAt });
+    return Results.Created($"/api/spaces/{spaceId}/members/{userId}", new { membership.UserId, membership.Role, membership.JoinedAt });
 }).RequireAuthorization();
 
 // Leave a space (self-service)
-tenantsApi.MapDelete("/{tenantId:int}/leave", async (int tenantId, ClaimsPrincipal user, AppDbContext db, IConfiguration config, IWebHostEnvironment env, IHttpClientFactory httpClientFactory) =>
+spacesApi.MapDelete("/{spaceId:int}/leave", async (int spaceId, ClaimsPrincipal user, AppDbContext db, IConfiguration config, IWebHostEnvironment env, IHttpClientFactory httpClientFactory) =>
 {
-    var tenant = await db.Tenants.FindAsync(tenantId);
-    if (tenant is null) return Results.NotFound();
-    if (tenant.Visibility == TenantVisibility.Public) return Results.BadRequest("Public spaces are open to everyone — there is no membership to leave.");
+    var space = await db.Spaces.FindAsync(spaceId);
+    if (space is null) return Results.NotFound();
+    if (space.Visibility == SpaceVisibility.Public) return Results.BadRequest("Public spaces are open to everyone — there is no membership to leave.");
     var userId = user.FindFirstValue(ClaimTypes.NameIdentifier) ?? user.FindFirstValue("sub");
     if (userId is null) return Results.Unauthorized();
-    if (tenant.OwnerId == userId) return Results.BadRequest("Owners cannot leave their own space. Transfer ownership or delete it.");
+    if (space.OwnerId == userId) return Results.BadRequest("Owners cannot leave their own space. Transfer ownership or delete it.");
 
-    var membership = await db.Memberships.FirstOrDefaultAsync(m => m.TenantId == tenantId && m.UserId == userId);
+    var membership = await db.Memberships.FirstOrDefaultAsync(m => m.SpaceId == spaceId && m.UserId == userId);
     if (membership is null) return Results.NotFound("You are not a member of this space.");
 
     db.Memberships.Remove(membership);
@@ -566,7 +683,7 @@ tenantsApi.MapDelete("/{tenantId:int}/leave", async (int tenantId, ClaimsPrincip
 
     _ = Task.Run(async () =>
     {
-        try { await RemoveUserFromKeycloakGroupAsync(config, httpClientFactory, env.IsDevelopment(), userId, $"spaces/{tenant.Slug}"); }
+        try { await RemoveUserFromKeycloakGroupAsync(config, httpClientFactory, env.IsDevelopment(), userId, $"spaces/{space.Slug}"); }
         catch { }
     });
 
@@ -574,74 +691,70 @@ tenantsApi.MapDelete("/{tenantId:int}/leave", async (int tenantId, ClaimsPrincip
 }).RequireAuthorization();
 
 // --- Invitations API ---
-// Create invite(s) for a tenant (owner or admin member)
-tenantsApi.MapPost("/{slug}/invitations", async (string slug, CreateInvitationsRequest req, ClaimsPrincipal user, AppDbContext db) =>
+// Create invite(s) for a space (owner or admin member)
+spacesApi.MapPost("/{slug}/invitations", async (string slug, CreateInvitationsRequest req, ClaimsPrincipal user, AppDbContext db) =>
 {
-    var tenant = await db.Tenants.FirstOrDefaultAsync(t => t.Slug == slug);
-    if (tenant is null) return Results.NotFound();
+    var tier = GetUserTier(user);
+    if (!LimitsForTier(tier).CanInvite)
+        return Results.Problem(
+            title: "Not available",
+            detail: "Invitations require the Pro plan or higher. Upgrade to invite members to private spaces.",
+            statusCode: 403);
+
+    var space = await db.Spaces.FirstOrDefaultAsync(t => t.Slug == slug);
+    if (space is null) return Results.NotFound();
     var userId = user.FindFirstValue(ClaimTypes.NameIdentifier) ?? user.FindFirstValue("sub");
     if (userId is null) return Results.Unauthorized();
-    if (tenant.OwnerId != userId && !IsAdmin(user))
+    if (space.OwnerId != userId && !IsAdmin(user))
     {
-        var callerMembership = await db.Memberships.FirstOrDefaultAsync(m => m.TenantId == tenant.Id && m.UserId == userId);
-        if (callerMembership?.Role != TenantMemberRole.Admin) return Results.Forbid();
+        var callerMembership = await db.Memberships.FirstOrDefaultAsync(m => m.SpaceId == space.Id && m.UserId == userId);
+        if (callerMembership?.Role != SpaceMemberRole.Admin) return Results.Forbid();
     }
 
-    if (req.Emails is null || req.Emails.Count == 0)
-        return Results.BadRequest("At least one email address is required.");
-
+    var emails = req.Emails ?? [];
+    if (emails.Count == 0) return Results.BadRequest("At least one email is required.");
+    var role = req.Role ?? "Member";
+    var now = DateTimeOffset.UtcNow;
     var created = new List<Invitation>();
-    foreach (var rawEmail in req.Emails)
+    foreach (var email in emails.Select(e => e.Trim().ToLowerInvariant()).Distinct())
     {
-        var email = rawEmail?.Trim().ToLowerInvariant() ?? "";
-        if (string.IsNullOrWhiteSpace(email)) continue;
-
-        // Revoke any existing pending invite for this email in this tenant
-        var existing = await db.Invitations.Where(i => i.TenantId == tenant.Id && i.Email == email && i.Status == InvitationStatus.Pending).ToListAsync();
-        foreach (var old in existing) old.Status = InvitationStatus.Revoked;
-
-        var token = GenerateSecureToken();
-
         var invitation = new Invitation
         {
-            TenantId = tenant.Id,
+            SpaceId = space.Id,
             Email = email,
-            Role = req.Role ?? "Member",
-            Token = token,
+            Role = role,
+            Token = GenerateSecureToken(),
+            Status = InvitationStatus.Pending,
             InvitedBy = userId,
-            ExpiresAt = DateTimeOffset.UtcNow.AddDays(7),
+            CreatedAt = now,
+            ExpiresAt = now.AddDays(7),
         };
         db.Invitations.Add(invitation);
         created.Add(invitation);
     }
-
     await db.SaveChangesAsync();
-    return Results.Ok(created.Select(i => new {
-        i.Id, i.Email, i.Role, i.Token, i.Status, i.CreatedAt, i.ExpiresAt
-    }));
+    return Results.Ok(created.Select(i => new { i.Id, i.Email, i.Role, i.Token, i.Status, i.CreatedAt, i.ExpiresAt }));
 }).RequireAuthorization();
-
-// List invitations for a tenant (owner or admin member)
-tenantsApi.MapGet("/{slug}/invitations", async (string slug, ClaimsPrincipal user, AppDbContext db) =>
+spacesApi.MapGet("/{slug}/invitations", async (string slug, ClaimsPrincipal user, AppDbContext db) =>
 {
-    var tenant = await db.Tenants.FirstOrDefaultAsync(t => t.Slug == slug);
-    if (tenant is null) return Results.NotFound();
+    var space = await db.Spaces.FirstOrDefaultAsync(t => t.Slug == slug);
+    if (space is null) return Results.NotFound();
     var userId = user.FindFirstValue(ClaimTypes.NameIdentifier) ?? user.FindFirstValue("sub");
     if (userId is null) return Results.Unauthorized();
-    if (tenant.OwnerId != userId && !IsAdmin(user))
+    if (space.OwnerId != userId && !IsAdmin(user))
     {
-        var callerMembership = await db.Memberships.FirstOrDefaultAsync(m => m.TenantId == tenant.Id && m.UserId == userId);
-        if (callerMembership?.Role != TenantMemberRole.Admin) return Results.Forbid();
+        var callerMembership = await db.Memberships.FirstOrDefaultAsync(m => m.SpaceId == space.Id && m.UserId == userId);
+        if (callerMembership?.Role != SpaceMemberRole.Admin) return Results.Forbid();
     }
 
     // Auto-expire invitations that are past their ExpiresAt
     var now = DateTimeOffset.UtcNow;
-    var expired = await db.Invitations.Where(i => i.TenantId == tenant.Id && i.Status == InvitationStatus.Pending && i.ExpiresAt <= now).ToListAsync();
+    var expired = await db.Invitations.Where(i => i.SpaceId == space.Id && i.Status == InvitationStatus.Pending && i.ExpiresAt <= now).ToListAsync();
     foreach (var e in expired) e.Status = InvitationStatus.Expired;
     if (expired.Count > 0) await db.SaveChangesAsync();
 
     var invitations = await db.Invitations
-        .Where(i => i.TenantId == tenant.Id)
+        .Where(i => i.SpaceId == space.Id)
         .OrderByDescending(i => i.CreatedAt)
         .Select(i => new { i.Id, i.Email, i.Role, i.Token, i.Status, i.CreatedAt, i.ExpiresAt, i.AcceptedAt, i.AcceptedByUserId })
         .ToListAsync();
@@ -649,19 +762,19 @@ tenantsApi.MapGet("/{slug}/invitations", async (string slug, ClaimsPrincipal use
 }).RequireAuthorization();
 
 // Revoke an invitation (owner or admin member)
-tenantsApi.MapDelete("/{slug}/invitations/{invitationId:guid}", async (string slug, Guid invitationId, ClaimsPrincipal user, AppDbContext db) =>
+spacesApi.MapDelete("/{slug}/invitations/{invitationId:guid}", async (string slug, Guid invitationId, ClaimsPrincipal user, AppDbContext db) =>
 {
-    var tenant = await db.Tenants.FirstOrDefaultAsync(t => t.Slug == slug);
-    if (tenant is null) return Results.NotFound();
+    var space = await db.Spaces.FirstOrDefaultAsync(t => t.Slug == slug);
+    if (space is null) return Results.NotFound();
     var userId = user.FindFirstValue(ClaimTypes.NameIdentifier) ?? user.FindFirstValue("sub");
     if (userId is null) return Results.Unauthorized();
-    if (tenant.OwnerId != userId && !IsAdmin(user))
+    if (space.OwnerId != userId && !IsAdmin(user))
     {
-        var callerMembership = await db.Memberships.FirstOrDefaultAsync(m => m.TenantId == tenant.Id && m.UserId == userId);
-        if (callerMembership?.Role != TenantMemberRole.Admin) return Results.Forbid();
+        var callerMembership = await db.Memberships.FirstOrDefaultAsync(m => m.SpaceId == space.Id && m.UserId == userId);
+        if (callerMembership?.Role != SpaceMemberRole.Admin) return Results.Forbid();
     }
 
-    var invitation = await db.Invitations.FirstOrDefaultAsync(i => i.Id == invitationId && i.TenantId == tenant.Id);
+    var invitation = await db.Invitations.FirstOrDefaultAsync(i => i.Id == invitationId && i.SpaceId == space.Id);
     if (invitation is null) return Results.NotFound();
     if (invitation.Status != InvitationStatus.Pending) return Results.BadRequest("Only pending invitations can be revoked.");
 
@@ -677,7 +790,7 @@ var invitationsApi = app.MapGroup("/api/invitations");
 invitationsApi.MapGet("/{token}", async (string token, AppDbContext db) =>
 {
     var invitation = await db.Invitations
-        .Include(i => i.Tenant)
+        .Include(i => i.Space)
         .FirstOrDefaultAsync(i => i.Token == token);
     if (invitation is null) return Results.NotFound();
 
@@ -694,8 +807,8 @@ invitationsApi.MapGet("/{token}", async (string token, AppDbContext db) =>
         invitation.Role,
         invitation.Status,
         invitation.ExpiresAt,
-        tenantName = invitation.Tenant.Name,
-        tenantSlug = invitation.Tenant.Slug,
+        spaceName = invitation.Space.Name,
+        spaceSlug = invitation.Space.Slug,
     });
 });
 
@@ -706,7 +819,7 @@ invitationsApi.MapPost("/{token}/accept", async (string token, ClaimsPrincipal u
     if (userId is null) return Results.Unauthorized();
 
     var invitation = await db.Invitations
-        .Include(i => i.Tenant)
+        .Include(i => i.Space)
         .FirstOrDefaultAsync(i => i.Token == token);
     if (invitation is null) return Results.NotFound();
 
@@ -723,29 +836,29 @@ invitationsApi.MapPost("/{token}/accept", async (string token, ClaimsPrincipal u
     if (invitation.Status == InvitationStatus.Expired)
         return Results.BadRequest("This invitation has expired.");
 
-    var tenant = invitation.Tenant;
+    var space = invitation.Space;
 
     // Don't add owner as member
-    if (userId == tenant.OwnerId)
+    if (userId == space.OwnerId)
     {
         invitation.Status = InvitationStatus.Accepted;
         invitation.AcceptedAt = DateTimeOffset.UtcNow;
         invitation.AcceptedByUserId = userId;
         await db.SaveChangesAsync();
-        return Results.Ok(new { tenantName = tenant.Name, tenantSlug = tenant.Slug });
+        return Results.Ok(new { spaceName = space.Name, spaceSlug = space.Slug });
     }
 
     // Check if already a member
-    var existing = await db.Memberships.FirstOrDefaultAsync(m => m.TenantId == tenant.Id && m.UserId == userId);
+    var existing = await db.Memberships.FirstOrDefaultAsync(m => m.SpaceId == space.Id && m.UserId == userId);
     if (existing is null)
     {
-        var role = invitation.Role == "Admin" ? TenantMemberRole.Admin : TenantMemberRole.Member;
-        var membership = new Membership { TenantId = tenant.Id, UserId = userId, Role = role };
+        var role = invitation.Role == "Admin" ? SpaceMemberRole.Admin : SpaceMemberRole.Member;
+        var membership = new Membership { SpaceId = space.Id, UserId = userId, Role = role };
         db.Memberships.Add(membership);
 
         _ = Task.Run(async () =>
         {
-            try { await AddUserToKeycloakGroupAsync(config, httpClientFactory, env.IsDevelopment(), userId, $"spaces/{tenant.Slug}"); }
+            try { await AddUserToKeycloakGroupAsync(config, httpClientFactory, env.IsDevelopment(), userId, $"spaces/{space.Slug}"); }
             catch { }
         });
     }
@@ -755,7 +868,7 @@ invitationsApi.MapPost("/{token}/accept", async (string token, ClaimsPrincipal u
     invitation.AcceptedByUserId = userId;
     await db.SaveChangesAsync();
 
-    return Results.Ok(new { tenantName = tenant.Name, tenantSlug = tenant.Slug });
+    return Results.Ok(new { spaceName = space.Name, spaceSlug = space.Slug });
 }).RequireAuthorization();
 var bookingsApi = app.MapGroup("/api/bookings").RequireAuthorization();
 
@@ -764,17 +877,17 @@ bookingsApi.MapGet("/", async (ClaimsPrincipal user, AppDbContext db) =>
 {
     var userId = user.FindFirstValue(ClaimTypes.NameIdentifier) ?? user.FindFirstValue("sub")!;
     return await db.Bookings
-        .Include(b => b.Resource).ThenInclude(r => r.Tenant)
+        .Include(b => b.Resource).ThenInclude(r => r.Space)
         .Where(b => b.UserId == userId)
         .OrderByDescending(b => b.Date).ThenBy(b => b.StartTime)
         .Select(b => new {
-            b.Id, b.ResourceId, b.TenantId, b.Date, b.StartTime, b.EndTime,
+            b.Id, b.ResourceId, b.SpaceId, b.Date, b.StartTime, b.EndTime,
             b.UserId, b.UserName, b.UserFirstName, b.UserLastName, b.UserPhone,
             b.CreatedAt,
             resourceName = b.Resource.Name,
             resourceType = b.Resource.ResourceType,
-            tenantName = b.Resource.Tenant.Name,
-            tenantSlug = b.Resource.Tenant.Slug,
+            spaceName = b.Resource.Space.Name,
+            spaceSlug = b.Resource.Space.Slug,
         })
         .ToListAsync();
 });
@@ -782,7 +895,7 @@ bookingsApi.MapGet("/", async (ClaimsPrincipal user, AppDbContext db) =>
 // Create booking
 bookingsApi.MapPost("/", async (CreateBookingRequest req, ClaimsPrincipal user, AppDbContext db) =>
 {
-    var resource = await db.Resources.Include(r => r.Tenant).FirstOrDefaultAsync(r => r.Id == req.ResourceId);
+    var resource = await db.Resources.Include(r => r.Space).FirstOrDefaultAsync(r => r.Id == req.ResourceId);
     if (resource is null || !resource.IsActive)
         return Results.BadRequest("Resource not found or inactive.");
 
@@ -790,9 +903,9 @@ bookingsApi.MapPost("/", async (CreateBookingRequest req, ClaimsPrincipal user, 
     if (userId is null) return Results.Unauthorized();
 
     // Private space access check
-    if (resource.Tenant.Visibility == TenantVisibility.Private && !IsAdmin(user) && resource.Tenant.OwnerId != userId)
+    if (resource.Space.Visibility == SpaceVisibility.Private && !IsAdmin(user) && resource.Space.OwnerId != userId)
     {
-        if (!await db.Memberships.AnyAsync(m => m.TenantId == resource.TenantId && m.UserId == userId))
+        if (!await db.Memberships.AnyAsync(m => m.SpaceId == resource.SpaceId && m.UserId == userId))
             return Results.Forbid();
     }
 
@@ -827,7 +940,7 @@ bookingsApi.MapPost("/", async (CreateBookingRequest req, ClaimsPrincipal user, 
     var booking = new Booking
     {
         ResourceId = req.ResourceId,
-        TenantId = resource.TenantId,
+        SpaceId = resource.SpaceId,
         UserId = userId,
         UserName = userName,
         UserFirstName = userFirstName,
@@ -842,14 +955,14 @@ bookingsApi.MapPost("/", async (CreateBookingRequest req, ClaimsPrincipal user, 
     return Results.Created($"/api/bookings/{booking.Id}", booking);
 });
 
-// Cancel booking (owner or global admin or tenant owner)
+// Cancel booking (owner or global admin or space owner)
 bookingsApi.MapDelete("/{id:int}", async (int id, ClaimsPrincipal user, AppDbContext db) =>
 {
     var userId = user.FindFirstValue(ClaimTypes.NameIdentifier) ?? user.FindFirstValue("sub")!;
-    var booking = await db.Bookings.Include(b => b.Resource).ThenInclude(r => r.Tenant).FirstOrDefaultAsync(b => b.Id == id);
+    var booking = await db.Bookings.Include(b => b.Resource).ThenInclude(r => r.Space).FirstOrDefaultAsync(b => b.Id == id);
     if (booking is null) return Results.NotFound();
-    var isTenantOwner = booking.Resource.Tenant.OwnerId == userId;
-    if (booking.UserId != userId && !IsAdmin(user) && !isTenantOwner) return Results.Forbid();
+    var isSpaceOwner = booking.Resource.Space.OwnerId == userId;
+    if (booking.UserId != userId && !IsAdmin(user) && !isSpaceOwner) return Results.Forbid();
     db.Bookings.Remove(booking);
     await db.SaveChangesAsync();
     return Results.NoContent();
@@ -857,6 +970,24 @@ bookingsApi.MapDelete("/{id:int}", async (int id, ClaimsPrincipal user, AppDbCon
 
 // --- Profile API ---
 var profileApi = app.MapGroup("/api/profile").RequireAuthorization();
+
+// Tier endpoint
+app.MapGet("/api/me/tier", (ClaimsPrincipal user) =>
+{
+    var tier = GetUserTier(user);
+    var limits = LimitsForTier(tier);
+    return Results.Ok(new
+    {
+        tier,
+        limits = new
+        {
+            maxSpaces = limits.MaxSpaces == int.MaxValue ? (int?)null : limits.MaxSpaces,
+            maxResourcesPerSpace = limits.MaxResourcesPerSpace == int.MaxValue ? (int?)null : limits.MaxResourcesPerSpace,
+            canHavePrivateSpaces = limits.CanHavePrivateSpaces,
+            canInvite = limits.CanInvite,
+        }
+    });
+}).RequireAuthorization();
 
 profileApi.MapGet("/", async (ClaimsPrincipal user, IConfiguration config, IWebHostEnvironment env, IHttpClientFactory httpClientFactory) =>
 {
@@ -1203,6 +1334,20 @@ static async Task RemoveUserFromKeycloakGroupAsync(IConfiguration config, IHttpC
     await client.SendAsync(req);
 }
 
+static async Task DeleteKeycloakGroupAsync(IConfiguration config, IHttpClientFactory factory, bool isDevelopment, string groupPath)
+{
+    var adminToken = await GetKeycloakAdminTokenAsync(config, factory, isDevelopment);
+    if (adminToken is null) return;
+    var adminUrl = GetKeycloakAdminUrl(config, isDevelopment);
+    var realm = config["Keycloak:RealmName"] ?? "bookit";
+    var client = factory.CreateClient("keycloak-account");
+    var groupId = await FindKeycloakGroupIdAsync(client, adminToken, adminUrl, realm, groupPath);
+    if (groupId is null) return;
+    var req = new HttpRequestMessage(HttpMethod.Delete, $"{adminUrl}/admin/realms/{realm}/groups/{groupId}");
+    req.Headers.Authorization = new AuthenticationHeaderValue("Bearer", adminToken);
+    await client.SendAsync(req);
+}
+
 static async Task<string?> FindKeycloakGroupIdAsync(HttpClient client, string adminToken, string adminUrl, string realm, string groupPath)
 {
     var parts = groupPath.Split('/');
@@ -1231,8 +1376,9 @@ static string GenerateSecureToken()
         .Replace("+", "-").Replace("/", "_").TrimEnd('=');
 
 // Request/Response records
-record CreateTenantRequest(string Name, string Slug, string? Description, string? Visibility);
-record UpdateTenantRequest(string? Name, string? Description, string? Visibility);
+record TierLimits(int MaxSpaces, int MaxResourcesPerSpace, bool CanHavePrivateSpaces, bool CanInvite);
+record CreateSpaceRequest(string Name, string Slug, string? Description, string? Visibility);
+record UpdateSpaceRequest(string? Name, string? Description, string? Visibility);
 record AddMemberRequest(string? UserId, string? Email, string? Role, string? FirstName, string? LastName, bool Create = false);
 record CreateInvitationsRequest(List<string>? Emails, string? Role);
 record CreateResourceRequest(string Name, string? Description, string ResourceType, int SlotDurationMinutes, int MaxAdvanceDays);

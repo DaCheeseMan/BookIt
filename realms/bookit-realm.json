@@ -42,6 +42,22 @@
       {
         "name": "tenant-admin",
         "description": "Tenant administrator"
+      },
+      {
+        "id": "pro",
+        "name": "pro",
+        "description": "Pro tier \u2014 5 spaces, 100 resources/space, private spaces, invitations",
+        "composite": false,
+        "clientRole": false,
+        "containerId": "bookit"
+      },
+      {
+        "id": "enterprise",
+        "name": "enterprise",
+        "description": "Enterprise tier \u2014 unlimited spaces and resources, private spaces, invitations",
+        "composite": false,
+        "clientRole": false,
+        "containerId": "bookit"
       }
     ]
   },

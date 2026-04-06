@@ -12,7 +12,7 @@ const ROLE_BADGE_CLASSES: Record<string, string> = {
 };
 
 function RoleBadge({ role }: { role: string }) {
-  const label = role === 'admin' ? 'Admin' : role === 'tenant-admin' ? 'Tenant Admin' : 'Member';
+  const label = role === 'admin' ? 'Admin' : role === 'tenant-admin' ? 'Space Admin' : 'Member';
   return (
     <span className={ROLE_BADGE_CLASSES[role] ?? 'inline-block px-2.5 py-0.5 rounded-full text-xs font-semibold uppercase tracking-wide bg-slate-100 text-slate-400'}>{label}</span>
   );
@@ -90,7 +90,7 @@ function EditUserForm({ user, onSave, onCancel }: EditFormProps) {
           {ALL_ROLES.map(r => (
             <label key={r} className="flex items-center gap-2 font-normal cursor-pointer text-sm text-slate-700">
               <input className="w-4 h-4 accent-indigo-600 cursor-pointer" type="checkbox" checked={roles.has(r)} onChange={() => toggleRole(r)} />
-              {r === 'admin' ? 'Admin' : r === 'tenant-admin' ? 'Tenant Admin' : 'Member'}
+              {r === 'admin' ? 'Admin' : r === 'tenant-admin' ? 'Space Admin' : 'Member'}
             </label>
           ))}
         </div>
@@ -182,7 +182,7 @@ function CreateUserForm({ onCreated, onCancel }: CreateFormProps) {
           {ALL_ROLES.map(r => (
             <label key={r} className="flex items-center gap-2 font-normal cursor-pointer text-sm text-slate-700">
               <input className="w-4 h-4 accent-indigo-600 cursor-pointer" type="checkbox" checked={roles.has(r)} onChange={() => toggleRole(r)} />
-              {r === 'admin' ? 'Admin' : r === 'tenant-admin' ? 'Tenant Admin' : 'Member'}
+              {r === 'admin' ? 'Admin' : r === 'tenant-admin' ? 'Space Admin' : 'Member'}
             </label>
           ))}
         </div>
@@ -295,7 +295,7 @@ export function AdminUsersPage() {
   const visible = pageSize === 0 ? filtered : filtered.slice(0, pageSize);
 
   const ROLE_FILTER_LABELS: Record<RoleFilter, string> = {
-    all: 'All', none: 'No role', member: 'Member', 'tenant-admin': 'Tenant Admin', admin: 'Admin',
+    all: 'All', none: 'No role', member: 'Member', 'tenant-admin': 'Space Admin', admin: 'Admin',
   };
 
   return (

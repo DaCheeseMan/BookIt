@@ -71,7 +71,7 @@ export function MyBookingsPage() {
                 <div className="text-3xl shrink-0">{getTypeIcon(b.resourceType)}</div>
                 <div className="flex flex-col gap-1">
                   <strong className="text-base text-slate-900">{b.resourceName}</strong>
-                  <span className="text-sm text-indigo-600">{b.tenantName}</span>
+                  <span className="text-sm text-indigo-600">{b.spaceName}</span>
                   <span className="text-sm text-slate-500">
                     📅 {b.date} &nbsp;⏰ {b.startTime.slice(0, 5)}–{b.endTime.slice(0, 5)}
                   </span>
@@ -99,7 +99,7 @@ export function MyBookingsPage() {
                 <div className="text-3xl shrink-0">{getTypeIcon(b.resourceType)}</div>
                 <div className="flex flex-col gap-1">
                   <strong className="text-base text-slate-900">{b.resourceName}</strong>
-                  <span className="text-sm text-indigo-600">{b.tenantName}</span>
+                  <span className="text-sm text-indigo-600">{b.spaceName}</span>
                   <span className="text-sm text-slate-500">
                     📅 {b.date} &nbsp;⏰ {b.startTime.slice(0, 5)}–{b.endTime.slice(0, 5)}
                   </span>

@@ -6,17 +6,17 @@ const FAQS = [
   {
     question: 'Is BookIt really free to start?',
     answer:
-      'Yes! Our free tier includes up to 3 resources and 100 bookings per month. No credit card required to sign up.',
+      'Yes! Our free plan includes 1 space with up to 3 resources. No credit card required to sign up.',
   },
   {
     question: 'How does multi-tenancy work?',
     answer:
-      'Each organisation (tenant) gets its own isolated space with its own resources, members, and booking history. Data is never shared between tenants.',
+      'Each organisation (space) gets its own isolated space with its own resources, members, and booking history. Data is never shared between spaces.',
   },
   {
     question: 'Is my data secure?',
     answer:
-      'Absolutely. We use Keycloak for enterprise-grade OIDC authentication, per-tenant data isolation at the database level, and encrypted connections.',
+      'Absolutely. We use Keycloak for enterprise-grade OIDC authentication, per-space data isolation at the database level, and encrypted connections.',
   },
   {
     question: 'Can I cancel at any time?',
