@@ -25,6 +25,10 @@ public class AppDbContext(DbContextOptions<AppDbContext> options) : DbContext(op
             .HasForeignKey(r => r.SpaceId)
             .OnDelete(DeleteBehavior.Cascade);
 
+        modelBuilder.Entity<Resource>()
+            .HasIndex(r => new { r.SpaceId, r.Name })
+            .IsUnique();
+
         modelBuilder.Entity<Booking>()
             .HasOne(b => b.Resource)
             .WithMany(r => r.Bookings)

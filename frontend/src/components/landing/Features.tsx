@@ -4,7 +4,7 @@ import { Building2, Calendar, Shield, Smartphone, Zap, Users } from 'lucide-reac
 const FEATURES = [
   {
     icon: Building2,
-    title: 'Multi-tenant workspaces',
+    title: 'Multi-space workspaces',
     description:
       'One platform for every organisation. Each space is fully isolated with its own resources, members, and settings.',
   },
@@ -18,7 +18,7 @@ const FEATURES = [
     icon: Shield,
     title: 'Secure by default',
     description:
-      'Enterprise-grade security with Keycloak OIDC, per-tenant data isolation, and role-based access control.',
+      'Enterprise-grade security with Keycloak OIDC, per-space data isolation, and role-based access control.',
   },
   {
     icon: Smartphone,

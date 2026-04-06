@@ -81,7 +81,7 @@ export function WeeklyCalendarPage() {
   const auth = useAuth();
 
   const [resource, setResource] = useState<Resource | null>(null);
-  const [tenantId, setTenantId] = useState<number | null>(null);
+  const [spaceId, setTenantId] = useState<number | null>(null);
   const [weekStart, setWeekStart] = useState<Date>(() => getMondayOf(new Date()));
   const [resourceBookings, setResourceBookings] = useState<ResourceBooking[]>([]);
   const [myFutureCount, setMyFutureCount] = useState(0);
@@ -126,9 +126,9 @@ export function WeeklyCalendarPage() {
   }
 
   const loadBookings = useCallback(async () => {
-    if (!tenantId || !resourceId) return;
+    if (!spaceId || !resourceId) return;
     try {
-      const weekData = await resourcesApi.getBookings(tenantId, Number(resourceId), weekFrom, weekTo);
+      const weekData = await resourcesApi.getBookings(spaceId, Number(resourceId), weekFrom, weekTo);
       setResourceBookings(weekData);
       if (auth.isAuthenticated) {
         const myData = await bookingsApi.getMine();
@@ -143,7 +143,7 @@ export function WeeklyCalendarPage() {
     } catch {
       setError('Could not load bookings.');
     }
-  }, [tenantId, resourceId, weekFrom, weekTo, auth.isAuthenticated]);
+  }, [spaceId, resourceId, weekFrom, weekTo, auth.isAuthenticated]);
 
   useEffect(() => {
     if (auth.user?.access_token) setAuthToken(auth.user.access_token);
@@ -169,8 +169,8 @@ export function WeeklyCalendarPage() {
   }, [weekStart]); // eslint-disable-line react-hooks/exhaustive-deps
 
   useEffect(() => {
-    if (tenantId) loadBookings();
-  }, [loadBookings, tenantId]);
+    if (spaceId) loadBookings();
+  }, [loadBookings, spaceId]);
 
   function getSlotInfo(dateStr: string, hour: number, minute: number): SlotInfo {
     const now = new Date();
@@ -204,12 +204,12 @@ export function WeeklyCalendarPage() {
       setError('You cannot have more than 3 upcoming bookings for this space.');
       return;
     }
-    if (!resourceId || !tenantId) return;
+    if (!resourceId || !spaceId) return;
     setPendingSlot({ dateStr, hour, minute });
   }
 
   async function confirmSlotBooking() {
-    if (!pendingSlot || !resourceId || !tenantId) return;
+    if (!pendingSlot || !resourceId || !spaceId) return;
     const { dateStr, hour, minute } = pendingSlot;
     const slotKey = `${dateStr}-${hour}-${minute}`;
     setPendingSlot(null);
@@ -273,14 +273,17 @@ export function WeeklyCalendarPage() {
   return (
     <div className="max-w-6xl mx-auto px-4 sm:px-6 py-6">
       <div className="flex flex-wrap items-center justify-between gap-4 mb-4 max-sm:flex-col max-sm:items-start">
-        <div className="flex items-center gap-3">
-          <h1 className="text-2xl font-bold text-slate-900">Book {resource?.name ?? '…'}</h1>
-          {resource && (
-            <span className="bg-indigo-100 text-indigo-700 rounded-full px-3 py-0.5 text-xs font-semibold">{resource.resourceType}</span>
-          )}
-          {resource && (
-            <span className="bg-indigo-100 text-indigo-700 rounded-full px-3 py-0.5 text-xs font-semibold">⏱ {slotDuration} min slots</span>
-          )}
+        <div>
+          <button className="bg-transparent border-none text-indigo-600 cursor-pointer text-sm p-0 mb-2 block hover:underline" onClick={() => navigate(`/spaces/${slug}`)}>← Back to resources</button>
+          <div className="flex items-center gap-3">
+            <h1 className="text-2xl font-bold text-slate-900">Book {resource?.name ?? '…'}</h1>
+            {resource && (
+              <span className="bg-indigo-100 text-indigo-700 rounded-full px-3 py-0.5 text-xs font-semibold">{resource.resourceType}</span>
+            )}
+            {resource && (
+              <span className="bg-indigo-100 text-indigo-700 rounded-full px-3 py-0.5 text-xs font-semibold">⏱ {slotDuration} min slots</span>
+            )}
+          </div>
         </div>
         <div className="flex items-center gap-3 flex-wrap max-sm:w-full max-sm:justify-between">
           <button

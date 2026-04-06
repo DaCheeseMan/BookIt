@@ -19,7 +19,7 @@ function getTypeIcon(resourceType: string): string {
   return RESOURCE_TYPE_ICONS.default;
 }
 
-export function TenantPage() {
+export function SpacePage() {
   const { slug } = useParams<{ slug: string }>();
   const navigate = useNavigate();
   const auth = useAuth();
@@ -66,9 +66,12 @@ export function TenantPage() {
     <div className="max-w-5xl mx-auto px-4 sm:px-6 lg:px-8 py-8">
       <div className="flex flex-wrap items-start justify-between gap-4 mb-8 max-md:flex-col">
         <div>
+          <button className="bg-transparent border-none text-indigo-600 cursor-pointer text-sm p-0 mb-2 block hover:underline" onClick={() => navigate('/spaces')}>← Back to spaces</button>
           <div className="flex items-center gap-2 mb-1 flex-wrap">
             <h1 className="text-3xl font-bold text-slate-900">{space.name}</h1>
-            <span className="text-xs font-semibold px-2 py-0.5 rounded-full bg-emerald-100 text-emerald-700">🌐 Public</span>
+            <span className={`text-xs font-semibold px-2 py-0.5 rounded-full ${space.visibility === 'Private' ? 'bg-slate-100 text-slate-600' : 'bg-emerald-100 text-emerald-700'}`}>
+              {space.visibility === 'Private' ? '🔒 Private' : '🌐 Public'}
+            </span>
           </div>
           {space.description && <p className="text-slate-500 mt-1">{space.description}</p>}
         </div>
@@ -78,7 +81,7 @@ export function TenantPage() {
               ⚙️ Settings
             </button>
           )}
-          {!isOwner && (
+          {!isOwner && space.visibility === 'Private' && (
             <button className="bg-white hover:bg-red-50 text-red-600 font-semibold px-4 py-2.5 rounded-xl border border-red-200 transition-colors cursor-pointer min-h-[44px] text-sm max-md:w-full" onClick={() => setConfirmLeave(true)}>
               Leave space
             </button>

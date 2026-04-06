@@ -163,9 +163,9 @@ export interface UserSearchResult {
 export const spacesApi = {
   getAll: () => apiClient.get<Space[]>('/spaces').then(r => r.data),
   getById: (idOrSlug: string | number) => apiClient.get<Space>(`/spaces/${idOrSlug}`).then(r => r.data),
-  create: (req: { name: string; slug: string; description?: string }) =>
+  create: (req: { name: string; slug: string; description?: string; visibility?: string }) =>
     apiClient.post<Space>('/spaces', req).then(r => r.data),
-  update: (id: number, req: { name?: string; description?: string }) =>
+  update: (id: number, req: { name?: string; description?: string; visibility?: string }) =>
     apiClient.put<Space>(`/spaces/${id}`, req).then(r => r.data),
   delete: (id: number) => apiClient.delete(`/spaces/${id}`),
 };
@@ -208,6 +208,22 @@ export const bookingsApi = {
 export const profileApi = {
   get: () => apiClient.get<UserProfile>('/profile').then(r => r.data),
   update: (profile: UserProfile) => apiClient.post<void>('/profile', profile),
+};
+
+export type UserTier = 'free' | 'pro' | 'enterprise';
+
+export interface TierInfo {
+  tier: UserTier;
+  limits: {
+    maxSpaces: number | null;
+    maxResourcesPerSpace: number | null;
+    canHavePrivateSpaces: boolean;
+    canInvite: boolean;
+  };
+}
+
+export const meApi = {
+  getTier: () => apiClient.get<TierInfo>('/me/tier').then(r => r.data),
 };
 
 export const adminApi = {

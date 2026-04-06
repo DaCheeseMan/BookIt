@@ -24,7 +24,7 @@ export function LandingNavbar() {
 
   function handleGetStarted() {
     if (auth.isAuthenticated) {
-      navigate('/tenants')
+      navigate('/spaces')
     } else {
       auth.signinRedirect()
     }
@@ -32,7 +32,7 @@ export function LandingNavbar() {
 
   function handleLogin() {
     if (auth.isAuthenticated) {
-      navigate('/tenants')
+      navigate('/spaces')
     } else {
       auth.signinRedirect()
     }

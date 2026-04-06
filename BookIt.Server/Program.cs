@@ -109,6 +109,31 @@ static bool IsAdmin(ClaimsPrincipal user)
     return false;
 }
 
+static string GetUserTier(ClaimsPrincipal user)
+{
+    var raw = user.FindFirstValue("realm_access");
+    if (raw is null) return "free";
+    try
+    {
+        var doc = System.Text.Json.JsonDocument.Parse(raw);
+        if (doc.RootElement.TryGetProperty("roles", out var roles))
+        {
+            var roleList = roles.EnumerateArray().Select(r => r.GetString()).ToList();
+            if (roleList.Contains("enterprise")) return "enterprise";
+            if (roleList.Contains("pro")) return "pro";
+        }
+    }
+    catch { }
+    return "free";
+}
+
+static TierLimits LimitsForTier(string tier) => tier switch
+{
+    "enterprise" => new TierLimits(int.MaxValue, int.MaxValue, true, true),
+    "pro"        => new TierLimits(5, 100, true, true),
+    _            => new TierLimits(1, 3, false, false),
+};
+
 
 // --- Config endpoint ---
 app.MapGet("/api/config", (IConfiguration config, IWebHostEnvironment env) =>
@@ -122,18 +147,32 @@ app.MapGet("/api/config", (IConfiguration config, IWebHostEnvironment env) =>
 // --- Spaces API ---
 var spacesApi = app.MapGroup("/api/spaces");
 
-// List all spaces (public)
-spacesApi.MapGet("/", async (AppDbContext db) =>
-    await db.Spaces
-        .Select(t => new { t.Id, t.Name, t.Slug, t.Description, t.OwnerId, t.Visibility, t.CreatedAt })
-        .ToListAsync());
+// List spaces: public spaces + private spaces the current user owns or is a member of
+spacesApi.MapGet("/", async (ClaimsPrincipal user, AppDbContext db) =>
+{
+    var userId = user.Identity?.IsAuthenticated == true
+        ? (user.FindFirstValue(ClaimTypes.NameIdentifier) ?? user.FindFirstValue("sub"))
+        : null;
+    var isAdmin = userId != null && IsAdmin(user);
+
+    var spaces = await db.Spaces
+        .Where(s =>
+            s.Visibility == SpaceVisibility.Public ||
+            isAdmin ||
+            s.OwnerId == userId ||
+            db.Memberships.Any(m => m.SpaceId == s.Id && m.UserId == userId))
+        .Select(s => new { s.Id, s.Name, s.Slug, s.Description, s.OwnerId, s.Visibility, s.CreatedAt })
+        .ToListAsync();
+
+    return Results.Ok(spaces);
+}).RequireAuthorization();
 
 // Get single space (public)
 spacesApi.MapGet("/{idOrSlug}", async (string idOrSlug, AppDbContext db) =>
 {
-    Space? space = int.TryParse(idOrSlug, out var id)
-        ? await db.Spaces.FindAsync(id)
-        : await db.Spaces.FirstOrDefaultAsync(t => t.Slug == idOrSlug);
+    // Always try slug first — numeric slugs (e.g. "5") must not be mistaken for DB IDs
+    var space = await db.Spaces.FirstOrDefaultAsync(t => t.Slug == idOrSlug)
+                ?? (int.TryParse(idOrSlug, out var id) ? await db.Spaces.FindAsync(id) : null);
     return space is null ? Results.NotFound() : Results.Ok(new { space.Id, space.Name, space.Slug, space.Description, space.OwnerId, space.Visibility, space.CreatedAt });
 });
 
@@ -143,11 +182,12 @@ spacesApi.MapPost("/", async (CreateSpaceRequest req, ClaimsPrincipal user, AppD
     if (user.Identity?.IsAuthenticated != true) return Results.Unauthorized();
 
     var ownerId = user.FindFirstValue(ClaimTypes.NameIdentifier) ?? user.FindFirstValue("sub")!;
+    var tier = GetUserTier(user);
+    var limits = LimitsForTier(tier);
 
-    // Free tier: max 1 space per user
     var existingSpaceCount = await db.Spaces.CountAsync(s => s.OwnerId == ownerId);
-    if (existingSpaceCount >= 1)
-        return Results.BadRequest("Free tier allows only 1 space per account.");
+    if (existingSpaceCount >= limits.MaxSpaces)
+        return Results.BadRequest($"Your {tier} plan allows up to {limits.MaxSpaces} space(s). Upgrade to create more.");
 
     if (string.IsNullOrWhiteSpace(req.Name) || string.IsNullOrWhiteSpace(req.Slug))
         return Results.BadRequest("Name and slug are required.");
@@ -156,7 +196,11 @@ spacesApi.MapPost("/", async (CreateSpaceRequest req, ClaimsPrincipal user, AppD
     if (await db.Spaces.AnyAsync(t => t.Slug == slug))
         return Results.Conflict("A space with that slug already exists.");
 
-    var visibility = SpaceVisibility.Public; // Free tier: public spaces only
+    var visibility = (limits.CanHavePrivateSpaces &&
+                      Enum.TryParse<SpaceVisibility>(req.Visibility, true, out var reqVis) &&
+                      reqVis == SpaceVisibility.Private)
+        ? SpaceVisibility.Private
+        : SpaceVisibility.Public;
 
     var space = new Space
     {
@@ -169,18 +213,21 @@ spacesApi.MapPost("/", async (CreateSpaceRequest req, ClaimsPrincipal user, AppD
     db.Spaces.Add(space);
     await db.SaveChangesAsync();
 
-    // Create a Keycloak group for this space (best-effort)
-    _ = Task.Run(async () =>
+    // Create a Keycloak group for private spaces only (best-effort)
+    if (visibility == SpaceVisibility.Private)
     {
-        try { await CreateKeycloakGroupAsync(config, httpClientFactory, env.IsDevelopment(), $"spaces/{slug}"); }
-        catch { /* group sync is best-effort */ }
-    });
+        _ = Task.Run(async () =>
+        {
+            try { await CreateKeycloakGroupAsync(config, httpClientFactory, env.IsDevelopment(), $"spaces/{slug}"); }
+            catch { /* group sync is best-effort */ }
+        });
+    }
 
     return Results.Created($"/api/spaces/{space.Slug}", new { space.Id, space.Name, space.Slug, space.Description, space.OwnerId, space.Visibility, space.CreatedAt });
 }).RequireAuthorization();
 
 // Update space (space owner or global admin)
-spacesApi.MapPut("/{id:int}", async (int id, UpdateSpaceRequest req, ClaimsPrincipal user, AppDbContext db) =>
+spacesApi.MapPut("/{id:int}", async (int id, UpdateSpaceRequest req, ClaimsPrincipal user, AppDbContext db, IConfiguration config, IWebHostEnvironment env, IHttpClientFactory httpClientFactory) =>
 {
     var space = await db.Spaces.FindAsync(id);
     if (space is null) return Results.NotFound();
@@ -189,22 +236,82 @@ spacesApi.MapPut("/{id:int}", async (int id, UpdateSpaceRequest req, ClaimsPrinc
 
     space.Name = req.Name?.Trim() ?? space.Name;
     space.Description = req.Description?.Trim() ?? space.Description;
-    // Free tier: visibility input is accepted but always forced to Public
+
+    var previousVisibility = space.Visibility;
     if (req.Visibility != null)
-        space.Visibility = SpaceVisibility.Public;
+    {
+        var ownerTier = GetUserTier(user);
+        if (LimitsForTier(ownerTier).CanHavePrivateSpaces &&
+            Enum.TryParse<SpaceVisibility>(req.Visibility, true, out var newVis))
+            space.Visibility = newVis;
+        else
+            space.Visibility = SpaceVisibility.Public;
+    }
+
+    var newVisibility = space.Visibility;
     await db.SaveChangesAsync();
+
+    // Handle visibility transitions (best-effort, fire-and-forget)
+    if (previousVisibility != newVisibility)
+    {
+        if (newVisibility == SpaceVisibility.Private)
+        {
+            // Public → Private: create Keycloak group
+            _ = Task.Run(async () =>
+            {
+                try { await CreateKeycloakGroupAsync(config, httpClientFactory, env.IsDevelopment(), $"spaces/{space.Slug}"); }
+                catch { }
+            });
+        }
+        else
+        {
+            // Private → Public: remove all memberships and clean up Keycloak group
+            var memberIds = await db.Memberships
+                .Where(m => m.SpaceId == space.Id)
+                .Select(m => m.UserId)
+                .ToListAsync();
+            await db.Memberships.Where(m => m.SpaceId == space.Id).ExecuteDeleteAsync();
+
+            _ = Task.Run(async () =>
+            {
+                try
+                {
+                    foreach (var memberId in memberIds)
+                        await RemoveUserFromKeycloakGroupAsync(config, httpClientFactory, env.IsDevelopment(), memberId, $"spaces/{space.Slug}");
+                    await DeleteKeycloakGroupAsync(config, httpClientFactory, env.IsDevelopment(), $"spaces/{space.Slug}");
+                }
+                catch { }
+            });
+        }
+    }
+
     return Results.Ok(new { space.Id, space.Name, space.Slug, space.Description, space.Visibility });
 }).RequireAuthorization();
 
 // Delete space (space owner or global admin)
-spacesApi.MapDelete("/{id:int}", async (int id, ClaimsPrincipal user, AppDbContext db) =>
+spacesApi.MapDelete("/{id:int}", async (int id, ClaimsPrincipal user, AppDbContext db, IConfiguration config, IWebHostEnvironment env, IHttpClientFactory httpClientFactory) =>
 {
     var space = await db.Spaces.FindAsync(id);
     if (space is null) return Results.NotFound();
     var userId = user.FindFirstValue(ClaimTypes.NameIdentifier) ?? user.FindFirstValue("sub")!;
     if (space.OwnerId != userId && !IsAdmin(user)) return Results.Forbid();
+
+    var slug = space.Slug;
+    var wasPrivate = space.Visibility == SpaceVisibility.Private;
+
     db.Spaces.Remove(space);
     await db.SaveChangesAsync();
+
+    // Clean up Keycloak group if it existed (private spaces only)
+    if (wasPrivate)
+    {
+        _ = Task.Run(async () =>
+        {
+            try { await DeleteKeycloakGroupAsync(config, httpClientFactory, env.IsDevelopment(), $"spaces/{slug}"); }
+            catch { }
+        });
+    }
+
     return Results.NoContent();
 }).RequireAuthorization();
 
@@ -290,15 +397,22 @@ spacesApi.MapPost("/{spaceId:int}/resources", async (int spaceId, CreateResource
     var userId = user.FindFirstValue(ClaimTypes.NameIdentifier) ?? user.FindFirstValue("sub")!;
     if (space.OwnerId != userId && !IsAdmin(user)) return Results.Forbid();
 
-    // Free tier: max 3 resources per space
+    var tier = GetUserTier(user);
+    var limits = LimitsForTier(tier);
+
+    // Tier: max resources per space
     var resourceCount = await db.Resources.CountAsync(r => r.SpaceId == spaceId && r.IsActive);
-    if (resourceCount >= 3)
-        return Results.BadRequest("Free tier allows up to 3 resources per space.");
+    if (resourceCount >= limits.MaxResourcesPerSpace)
+        return Results.BadRequest($"Your {tier} plan allows up to {limits.MaxResourcesPerSpace} resource(s) per space. Upgrade to add more.");
+
+    var newName = req.Name.Trim();
+    if (await db.Resources.AnyAsync(r => r.SpaceId == spaceId && r.Name == newName))
+        return Results.Conflict("A resource with that name already exists in this space.");
 
     var resource = new Resource
     {
         SpaceId = spaceId,
-        Name = req.Name.Trim(),
+        Name = newName,
         Description = req.Description?.Trim() ?? string.Empty,
         ResourceType = req.ResourceType.Trim(),
         SlotDurationMinutes = req.SlotDurationMinutes > 0 ? req.SlotDurationMinutes : 60,
@@ -319,7 +433,12 @@ spacesApi.MapPut("/{spaceId:int}/resources/{resourceId:int}", async (int spaceId
     var userId = user.FindFirstValue(ClaimTypes.NameIdentifier) ?? user.FindFirstValue("sub")!;
     if (resource.Space.OwnerId != userId && !IsAdmin(user)) return Results.Forbid();
 
-    resource.Name = req.Name?.Trim() ?? resource.Name;
+    var updatedName = req.Name?.Trim();
+    if (updatedName is not null && updatedName != resource.Name &&
+        await db.Resources.AnyAsync(r => r.SpaceId == spaceId && r.Name == updatedName && r.Id != resourceId))
+        return Results.Conflict("A resource with that name already exists in this space.");
+
+    resource.Name = updatedName ?? resource.Name;
     resource.Description = req.Description?.Trim() ?? resource.Description;
     resource.ResourceType = req.ResourceType?.Trim() ?? resource.ResourceType;
     if (req.SlotDurationMinutes > 0) resource.SlotDurationMinutes = req.SlotDurationMinutes;
@@ -575,14 +694,47 @@ spacesApi.MapDelete("/{spaceId:int}/leave", async (int spaceId, ClaimsPrincipal 
 // Create invite(s) for a space (owner or admin member)
 spacesApi.MapPost("/{slug}/invitations", async (string slug, CreateInvitationsRequest req, ClaimsPrincipal user, AppDbContext db) =>
 {
-    // Free tier: invitations are not available; public spaces are open to all users
-    return Results.Problem(
-        title: "Not available",
-        detail: "Invitations are not available on the free tier. Public spaces are open to all users.",
-        statusCode: 403);
-}).RequireAuthorization();
+    var tier = GetUserTier(user);
+    if (!LimitsForTier(tier).CanInvite)
+        return Results.Problem(
+            title: "Not available",
+            detail: "Invitations require the Pro plan or higher. Upgrade to invite members to private spaces.",
+            statusCode: 403);
 
-// List invitations for a space (owner or admin member)
+    var space = await db.Spaces.FirstOrDefaultAsync(t => t.Slug == slug);
+    if (space is null) return Results.NotFound();
+    var userId = user.FindFirstValue(ClaimTypes.NameIdentifier) ?? user.FindFirstValue("sub");
+    if (userId is null) return Results.Unauthorized();
+    if (space.OwnerId != userId && !IsAdmin(user))
+    {
+        var callerMembership = await db.Memberships.FirstOrDefaultAsync(m => m.SpaceId == space.Id && m.UserId == userId);
+        if (callerMembership?.Role != SpaceMemberRole.Admin) return Results.Forbid();
+    }
+
+    var emails = req.Emails ?? [];
+    if (emails.Count == 0) return Results.BadRequest("At least one email is required.");
+    var role = req.Role ?? "Member";
+    var now = DateTimeOffset.UtcNow;
+    var created = new List<Invitation>();
+    foreach (var email in emails.Select(e => e.Trim().ToLowerInvariant()).Distinct())
+    {
+        var invitation = new Invitation
+        {
+            SpaceId = space.Id,
+            Email = email,
+            Role = role,
+            Token = GenerateSecureToken(),
+            Status = InvitationStatus.Pending,
+            InvitedBy = userId,
+            CreatedAt = now,
+            ExpiresAt = now.AddDays(7),
+        };
+        db.Invitations.Add(invitation);
+        created.Add(invitation);
+    }
+    await db.SaveChangesAsync();
+    return Results.Ok(created.Select(i => new { i.Id, i.Email, i.Role, i.Token, i.Status, i.CreatedAt, i.ExpiresAt }));
+}).RequireAuthorization();
 spacesApi.MapGet("/{slug}/invitations", async (string slug, ClaimsPrincipal user, AppDbContext db) =>
 {
     var space = await db.Spaces.FirstOrDefaultAsync(t => t.Slug == slug);
@@ -818,6 +970,24 @@ bookingsApi.MapDelete("/{id:int}", async (int id, ClaimsPrincipal user, AppDbCon
 
 // --- Profile API ---
 var profileApi = app.MapGroup("/api/profile").RequireAuthorization();
+
+// Tier endpoint
+app.MapGet("/api/me/tier", (ClaimsPrincipal user) =>
+{
+    var tier = GetUserTier(user);
+    var limits = LimitsForTier(tier);
+    return Results.Ok(new
+    {
+        tier,
+        limits = new
+        {
+            maxSpaces = limits.MaxSpaces == int.MaxValue ? (int?)null : limits.MaxSpaces,
+            maxResourcesPerSpace = limits.MaxResourcesPerSpace == int.MaxValue ? (int?)null : limits.MaxResourcesPerSpace,
+            canHavePrivateSpaces = limits.CanHavePrivateSpaces,
+            canInvite = limits.CanInvite,
+        }
+    });
+}).RequireAuthorization();
 
 profileApi.MapGet("/", async (ClaimsPrincipal user, IConfiguration config, IWebHostEnvironment env, IHttpClientFactory httpClientFactory) =>
 {
@@ -1164,6 +1334,20 @@ static async Task RemoveUserFromKeycloakGroupAsync(IConfiguration config, IHttpC
     await client.SendAsync(req);
 }
 
+static async Task DeleteKeycloakGroupAsync(IConfiguration config, IHttpClientFactory factory, bool isDevelopment, string groupPath)
+{
+    var adminToken = await GetKeycloakAdminTokenAsync(config, factory, isDevelopment);
+    if (adminToken is null) return;
+    var adminUrl = GetKeycloakAdminUrl(config, isDevelopment);
+    var realm = config["Keycloak:RealmName"] ?? "bookit";
+    var client = factory.CreateClient("keycloak-account");
+    var groupId = await FindKeycloakGroupIdAsync(client, adminToken, adminUrl, realm, groupPath);
+    if (groupId is null) return;
+    var req = new HttpRequestMessage(HttpMethod.Delete, $"{adminUrl}/admin/realms/{realm}/groups/{groupId}");
+    req.Headers.Authorization = new AuthenticationHeaderValue("Bearer", adminToken);
+    await client.SendAsync(req);
+}
+
 static async Task<string?> FindKeycloakGroupIdAsync(HttpClient client, string adminToken, string adminUrl, string realm, string groupPath)
 {
     var parts = groupPath.Split('/');
@@ -1192,6 +1376,7 @@ static string GenerateSecureToken()
         .Replace("+", "-").Replace("/", "_").TrimEnd('=');
 
 // Request/Response records
+record TierLimits(int MaxSpaces, int MaxResourcesPerSpace, bool CanHavePrivateSpaces, bool CanInvite);
 record CreateSpaceRequest(string Name, string Slug, string? Description, string? Visibility);
 record UpdateSpaceRequest(string? Name, string? Description, string? Visibility);
 record AddMemberRequest(string? UserId, string? Email, string? Role, string? FirstName, string? LastName, bool Create = false);
